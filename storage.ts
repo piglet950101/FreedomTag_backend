@@ -52,7 +52,7 @@ import {
   dustyBinDonations,
   passwordResetTokens,
   learnEntries
-} from "../shared/schema";
+} from "./shared/schema";
 import { db, supabase } from "./db";
 import { camelizeRow, camelizeRows, snakeifyRow } from "./supabase";
 import { eq, desc, isNull, sql } from "drizzle-orm";

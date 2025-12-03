@@ -13,7 +13,7 @@ import {
   referrals,
   recurringDonations,
   stories
-} from "../shared/schema";
+} from "./shared/schema";
 // removed duplicate incorrect imports which were added mistakenly
 import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";

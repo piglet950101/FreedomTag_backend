@@ -5,7 +5,7 @@ import { generateReferralCode, calculateReferralReward } from "./utils/referral"
 import { blockkoinClient } from "./blockkoin";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
-import { passwordResetTokens } from "../shared/schema";
+import { passwordResetTokens } from "./shared/schema";
 import authRouter from './routes/auth';
 import merchantRouter from './routes/merchant';
 import donateRouter from './routes/donate';
