@@ -1,0 +1,142 @@
+{
+  "info": {
+    "name": "Organization Portal API",
+    "_postman_id": "c92ae0d1-2f41-49de-9b41-f0e014abc123",
+    "description": "Postman collection for Organization portal API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "List Organizations",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/list",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", "list"]
+        }
+      }
+    },
+    {
+      "name": "Get Organization by ID",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id"]
+        }
+      }
+    },
+    {
+      "name": "Get Tags by Organization",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id/tags",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id", "tags"]
+        }
+      }
+    },
+    {
+      "name": "Issue Tag (with optional Sumsub)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"TAG001\",\n  \"pin\": \"1234\",\n  \"beneficiaryType\": \"child\",\n  \"beneficiaryName\": \"John Doe\",\n  \"beneficiaryEmail\": \"john@example.com\",\n  \"beneficiaryPhone\": \"+123456789\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id/issue-tag",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id", "issue-tag"]
+        }
+      }
+    },
+    {
+      "name": "Organization Tree",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id/tree",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id", "tree"]
+        }
+      }
+    },
+    {
+      "name": "Recover PIN",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"TAG001\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id/recover-pin",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id", "recover-pin"]
+        }
+      }
+    },
+    {
+      "name": "Reset PIN",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"TAG001\",\n  \"newPin\": \"9999\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id/reset-pin",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id", "reset-pin"]
+        }
+      }
+    },
+    {
+      "name": "Give Funds to Tag (Distribution)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"beneficiaryTagCode\": \"TAG001\",\n  \"amountZAR\": 50,\n  \"donorName\": \"ACME Donor\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/organizations/:id/give-to-tag",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "organizations", ":id", "give-to-tag"]
+        }
+      }
+    }
+  ]
+}

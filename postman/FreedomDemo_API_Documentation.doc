@@ -1,0 +1,129 @@
+Freedom Demo API Documentation
+
+Overview
+--------
+This document describes the API endpoints in the Freedom Demo server. It includes usage instructions, sample request bodies, expected responses, and notes for integration and testing.
+
+Base URL
+--------
+- For local development: http://localhost:3000
+
+Authentication & Session
+------------------------
+- The server uses cookie-based sessions via `express-session`.
+- For session-based endpoints, capture the `Set-Cookie` header after login and send the `Cookie` header for subsequent requests.
+
+Important Notes
+---------------
+- Supabase expects snake_case column names; many endpoints send camelCase and use snakeifyRow in code.
+- Avoid sending invalid objects for timestamp fields; use `null` or an ISO string where applicable.
+- For wallet balance keys, use `balanceZar` for Supabase payloads (or `balanceZAR` for Drizzle fallback) to avoid incorrect `balance_z_a_r` parsing.
+
+Primary Endpoints
+-----------------
+1) POST /api/auth/signup
+- Create a user and assign a role.
+- Body:
+  {
+    "email": "demo.user@xyz",
+    "password": "Password123!",
+    "fullName": "Demo User",
+    "role": "PHILANTHROPIST"
+  }
+- Response: 200 with user info and roles
+- Comment: Server will auto-create a blockkoin account if available.
+
+2) POST /api/auth/login
+- Body: { "email", "password" }
+- Response: 200 with user profile and session cookie
+- Comment: Keep the cookie and reuse it via `Cookie` header.
+
+3) GET /api/auth/me
+- Requires session cookie
+- Returns user profile + roles
+
+4) POST /api/auth/forgot-password
+- Starts biometric Sumsub flow, returns resetToken and verificationUrl.
+
+5) GET /api/auth/reset-token/:token
+- Validate reset token state
+
+6) POST /api/auth/reset-password
+- Submit new password (requires biometric verification state on the token)
+
+7) GET /api/tag/:tagCode
+- Fetch tag details by code
+
+8) GET /api/tags/list
+- List all tags (basic info and wallet balance)
+
+Donation Endpoints
+------------------
+- POST /api/donate/public -> start public donation, returns bankSimUrl and bankRef
+- POST /api/donate/start -> authenticated donor starts donation
+- POST /api/bank/settle -> bank webhook simulation, to finalize donation
+- POST /api/crypto/public, POST /api/crypto/start, POST /api/crypto/settle -> Crypto donation flows
+
+Merchant Endpoints
+------------------
+- POST /api/merchant/redeem
+  Body: { "merchantOutletId", "tagCode", "amountZAR" }
+  - Merchant redeems tag balance; `amountZAR` is interpreted as cents by the code.
+- POST /api/merchant/spend
+  Body: { "fromMerchantOutletId", "toMerchantOutletId", "amountZAR" }
+- POST /api/merchant/withdraw
+  Body: { "merchantOutletId", "amountZAR" }
+- GET /api/merchant/chains -> list chains
+- GET /api/merchant/chains/:chainId -> get chain
+- GET /api/merchant/chains/:chainId/outlets -> outlets for chain
+- GET /api/merchant/outlets/:outletId -> outlet details
+
+Admin Endpoints (Admin Learn Content)
+-------------------------------------
+- GET /api/admin/learn -> list learn entries
+- POST /api/admin/learn -> create new learn entry
+  Sample body (required fields):
+  {
+    "route": "/donate",
+    "title": "How to donate",
+    "howSteps": ["Step 1"],
+    "whatHappensNext": ["Donation recorded"],
+    "requirements": ["Tag code"],
+    "commonErrors": "[]",
+    "privacyNote": "We handle your data securely"
+  }
+- PATCH /api/admin/learn/:id -> update a learn entry
+- POST /api/admin/learn/:id/publish -> publish an entry
+  Body: { "publishedBy": "admin-user-id" }
+
+Philanthropist Endpoint
+-----------------------
+- POST /api/philanthropist/signup
+  Body: { "email", "password", "displayName" }
+  Response: 200 with philanthropist and wallet info
+
+Testing & Postman
+-----------------
+I created a Postman collection under `server/postman/FreedomDemo.postman_collection.json` with example requests and test scripts.
+
+- Import the collection into Postman.
+- Set environment variables (baseUrl, tagCode, tagPin, etc.).
+- Use test requests in sequence to simulate flows.
+- For session-based flows, ensure `Cookie` header is used: Postman gets cookie automatically when using the cookie jar.
+
+Comments & Recommendations
+---------------------------
+- Keep a `SKIP_SEED` env toggle for automated test suites to avoid re-seeding or collisions.
+- Add unit tests (Jest + supertest) for key flows (Auth, Tag read, Donate flow, Merchant spend/redeem, Admin publish).
+- Add a `Newman` CI job to run the Postman collection in CI for integration tests.
+
+Contact & Further Notes
+-----------------------
+- For any missing endpoints, let me know which coverage you want to add and I can extend the Postman collection and update the .doc accordingly.
+
+-- End of Doc  
+
+// Comments within the doc:
+// - Replace `{{baseUrl}}` with the actual server URL (http://localhost:3000 for local).
+// - `amountZAR` is used inconsistently: it sometimes expects cents (integer) or ZAR float; refer to routes for the exact interpretation.
+// - Supabase payload keys: use camelCase input and snakeifyRow will convert, but prefer `balanceZar` instead of `balanceZAR` for value conversion.

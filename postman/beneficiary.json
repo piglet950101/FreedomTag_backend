@@ -1,0 +1,130 @@
+{
+  "info": {
+    "name": "Beneficiary API",
+    "_postman_id": "beneficiary-api-collection",
+    "description": "Postman collection for Beneficiary Authentication & Operations API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Verify PIN Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"123456\",\n  \"pin\": \"1111\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/beneficiary/verify-pin",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "auth", "beneficiary", "verify-pin"]
+        }
+      }
+    },
+    {
+      "name": "Biometric Login (Start)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"123456\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/beneficiary/biometric-login",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "auth", "beneficiary", "biometric-login"]
+        }
+      }
+    },
+    {
+      "name": "Biometric Login Complete",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"123456\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/beneficiary/biometric-complete",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "auth", "beneficiary", "biometric-complete"]
+        }
+      }
+    },
+    {
+      "name": "Beneficiary Login (PIN Login)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tagCode\": \"123456\",\n  \"pin\": \"1111\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/beneficiary/login",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "auth", "beneficiary", "login"]
+        }
+      }
+    },
+    {
+      "name": "Beneficiary Transfer",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fromTagCode\": \"123456\",\n  \"toTagCode\": \"654321\",\n  \"amountZAR\": 50\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/beneficiary/transfer",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "auth", "beneficiary", "transfer"]
+        }
+      }
+    },
+    {
+      "name": "Change PIN",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"currentPin\": \"1111\",\n  \"newPin\": \"2222\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/beneficiary/change-pin",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "auth", "beneficiary", "change-pin"]
+        }
+      }
+    }
+  ]
+}

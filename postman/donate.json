@@ -1,0 +1,116 @@
+{
+  "info": {
+    "name": "FreedomTag - Donations API",
+    "_postman_id": "freedomtag-donations-001",
+    "description": "Donation & bank settlement API for FreedomTag",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Donate - Public",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"tagCode\": \"ABC123\",\n    \"amountZAR\": 100,\n    \"currency\": \"ZAR\",\n    \"country\": \"ZA\",\n    \"needTaxReceipt\": true,\n    \"donorEmail\": \"test@example.com\",\n    \"donorName\": \"John Doe\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/donate/public",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["donate","public"]
+        }
+      }
+    },
+    {
+      "name": "Donate - Start (Authenticated Donor)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"tagCode\": \"ABC123\",\n    \"amountZAR\": 150\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/donate/start",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["donate", "start"]
+        }
+      }
+    },
+    {
+      "name": "Bank Settle",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"bankRef\": \"DONOR:ABC123:123456\",\n    \"tagCode\": \"ABC123\",\n    \"amountZAR\": 100,\n    \"source\": \"public\",\n    \"taxReceipt\": \"1\",\n    \"donorEmail\": \"test@example.com\",\n    \"donorName\": \"John Doe\",\n    \"currency\": \"ZAR\",\n    \"country\": \"ZA\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/bank/settle",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["bank","settle"]
+        }
+      }
+    },
+    {
+      "name": "Recurring Donations - Process (Cron)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/recurring-donations/process",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["recurring-donations","process"]
+        }
+      }
+    },
+    {
+      "name": "Recent Donations Feed",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:3000/donations/recent",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["donations","recent"]
+        }
+      }
+    },
+    {
+      "name": "Donation Terms",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:3000/terms",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["terms"]
+        }
+      }
+    }
+  ]
+}

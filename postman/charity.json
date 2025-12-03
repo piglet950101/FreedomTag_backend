@@ -1,0 +1,43 @@
+{
+  "info": {
+    "_postman_id": "f21b4c8a-9fa5-4b21-8efa-charity-only",
+    "name": "FreedomDemo - Charity API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Charity Signup",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "http://localhost:3000/api/charity/signup",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "charity", "signup"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"organizationName\": \"Sample Charity\",\n  \"email\": \"charity@example.com\",\n  \"password\": \"password123\",\n  \"description\": \"Helping communities\",\n  \"website\": \"https://charity.org\",\n  \"facebook\": \"charityFB\",\n  \"twitter\": \"charityTW\",\n  \"instagram\": \"charityIG\",\n  \"linkedin\": \"charityLN\",\n  \"logoUrl\": \"https://image.com/logo.png\",\n  \"referralCode\": \"OPTIONAL-CODE\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Get Charity Credibility",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/charity/credibility/{{charityCode}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "charity", "credibility", "{{charityCode}}"]
+        }
+      }
+    }
+  ]
+}

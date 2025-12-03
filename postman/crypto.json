@@ -1,0 +1,119 @@
+{
+  "info": {
+    "name": "FreedomDemo API",
+    "_postman_id": "c3f1a8ab-7515-41b5-a12e-b37a93442fbc",
+    "description": "Postman Collection for your Crypto + Charity API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Public Crypto",
+      "item": [
+        {
+          "name": "Create Public Crypto Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/crypto/public",
+              "host": ["{{base_url}}"],
+              "path": ["api","crypto","public"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"tagCode\": \"{{tagCode}}\", \"amountZAR\": {{amountZAR}}}"
+            }
+          }
+        },
+        {
+          "name": "Settle Public Crypto Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/api/crypto/settle",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cryptoRef\": \"test-ref\",\n  \"tagCode\": \"{{tagCode}}\",\n  \"amountZAR\": {{amountZAR}},\n  \"crypto\": \"BTC\",\n  \"source\": \"public\"\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Authenticated Crypto",
+      "item": [
+        {
+          "name": "Crypto Buy (Requires Session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/api/crypto/buy",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountZAR\": {{amountZAR}}\n}"
+            }
+          }
+        },
+        {
+          "name": "Crypto Sell (Requires Session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/api/crypto/sell",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountUSDT\": 10\n}"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "Donor / Tag Auth",
+      "item": [
+        {
+          "name": "Login as Donor (Session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/api/donor/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tagCode\": \"{{tagCode}}\"\n}"
+            }
+          }
+        },
+
+        {
+          "name": "Start Authenticated Crypto Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/api/crypto/start",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tagCode\": \"{{tagCode}}\",\n  \"amountZAR\": {{amountZAR}}\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

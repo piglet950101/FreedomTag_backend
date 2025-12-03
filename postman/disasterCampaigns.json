@@ -1,0 +1,81 @@
+{
+  "info": {
+    "name": "Disaster Campaigns API",
+    "_postman_id": "d55f0e7f-1234-5678-9101-abcdef123456",
+    "description": "Collection for Disaster Campaigns endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Current Month's Disaster Campaigns",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/disaster-campaigns/current",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "disaster-campaigns", "current"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Vote for Disaster Campaign",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Cookie",
+            "value": "userAuth=your_session_cookie_here"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/disaster-campaigns/:id/vote",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "disaster-campaigns", ":id", "vote"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Disaster Campaign",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Cookie",
+            "value": "userAuth=your_session_cookie_here"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Flood Relief\",\n  \"description\": \"Providing aid to flood victims\",\n  \"disasterType\": \"Flood\",\n  \"location\": \"KwaZulu-Natal\",\n  \"urgencyLevel\": \"High\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/disaster-campaigns",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["api", "disaster-campaigns"]
+        }
+      },
+      "response": []
+    }
+  ]
+}

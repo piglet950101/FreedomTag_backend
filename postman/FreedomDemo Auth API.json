@@ -1,0 +1,140 @@
+{
+  "info": {
+    "name": "FreedomDemo Auth API",
+    "_postman_id": "e234f8e1-1123-4a05-932e-fdemo000001",
+    "description": "Postman collection for FreedomDemo authentication routes",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth - Signup",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"user1@example.com\",\n  \"password\": \"Pass1234!\",\n  \"fullName\": \"John Doe\",\n  \"phone\": \"0821111111\",\n  \"country\": \"ZA\",\n  \"role\": \"USER\"\n}"
+        },
+        "url": { "raw": "http://localhost:3000/api/auth/signup", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["auth", "signup"] }
+      }
+    },
+
+    {
+      "name": "Auth - Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"user1@example.com\",\n  \"password\": \"Pass1234!\"\n}"
+        },
+        "url": { "raw": "http://localhost:3000/api/auth/login", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["auth", "login"] }
+      }
+    },
+
+    {
+      "name": "Auth - Me (current user)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/auth/me",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["auth", "me"]
+        }
+      }
+    },
+
+    {
+      "name": "Auth - Logout",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/auth/logout",
+          "protocol": "http",
+          "host": ["localhost"], "port": "3000",
+          "path": ["auth", "logout"]
+        }
+      }
+    },
+
+    {
+      "name": "Forgot Password",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"user1@example.com\"\n}"
+        },
+        "url": { "raw": "http://localhost:3000/api/auth/forgot-password", "protocol": "http", "host": ["localhost"], "port": "3000", "path": ["auth", "forgot-password"] }
+      }
+    },
+
+    {
+      "name": "Reset Token - Validate",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:3000/api/auth/reset-token/{{token}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["auth", "reset-token", "{{token}}"]
+        }
+      }
+    },
+
+    {
+      "name": "Reset Password",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"token\": \"{{token}}\",\n  \"newPassword\": \"NewPass123!\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/reset-password",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["auth", "reset-password"]
+        }
+      }
+    },
+
+    {
+      "name": "Password Reset Webhook (test)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"applicantId\": \"example-123\",\n  \"reviewStatus\": \"completed\",\n  \"reviewResult\": { \"reviewAnswer\": \"GREEN\" }\n}"
+        },
+        "url": {
+          "raw": "http://localhost:3000/api/auth/password-reset-verification-webhook",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "3000",
+          "path": ["auth", "password-reset-verification-webhook"]
+        }
+      }
+    }
+  ]
+}
