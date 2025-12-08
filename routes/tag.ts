@@ -15,13 +15,14 @@ router.get('/tag/:tagCode', async (req, res) => {
       return res.status(404).json({ error: 'unknown tag' });
     }
     const wallet = await storage.getWallet(tag.walletId);
+    console.log('💰 Tag wallet:', wallet ? wallet.balanceZar : 0);
     if (!wallet) {
       return res.status(404).json({ error: 'wallet not found' });
     }
     res.json({
       tagCode: tag.tagCode,
       walletId: wallet.id,
-      balanceZAR: wallet.balanceZAR,
+      balanceZAR: wallet ? wallet.balanceZar : 0,
     });
   } catch (error) {
     res.status(500).json({ error: 'internal server error' });
@@ -74,7 +75,8 @@ router.get('/tag/:tagCode/info', async (req, res) => {
   // Quick Tag Setup - For street encounters (giver creates tag for receiver)
   router.post('/quick-tag-setup', async (req, res) => {
     try {
-      const { beneficiaryName, beneficiaryPhone, pin, referredBy } = req.body || {};
+      
+      const { beneficiaryName, beneficiaryPhone, pin, referredBy, userId: requestUserId } = req.body || {};
 
       if (!beneficiaryName || !pin) {
         return res.status(400).json({ error: 'Beneficiary name and PIN required' });
@@ -107,10 +109,18 @@ router.get('/tag/:tagCode/info', async (req, res) => {
         }
       }
 
+      // Get logged-in user ID from request body or session
+      let userId = requestUserId || null;
+      if (!userId && req.session && req.session.userAuth) {
+        userId = req.session.userAuth.userId;
+      }
+      console.log('🔐 Final userId for tag creation:', userId);
+
       // Create the tag (no organization - this is a street tag)
       const tag = await storage.createTag({
         tagCode,
         walletId: wallet.id,
+        userId, // Link to authenticated user if logged in
         pin: String(pin),
         organizationId: null,
         beneficiaryType: 'individual',
@@ -120,6 +130,8 @@ router.get('/tag/:tagCode/info', async (req, res) => {
         referralCode,
         referredBy: validReferredBy,
       });
+
+      console.log('✅ Tag created:', { tagCode: tag.tagCode, userId: tag.userId, walletId: tag.walletId });
 
       // If referred by someone, create referral record and pay reward
       if (referrer && validReferredBy) {

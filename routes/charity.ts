@@ -146,6 +146,72 @@ const router = express.Router();
     }
   });
 
+  // Charity/Organization Login API
+  router.post('/charity/login', async (req, res) => {
+    try {
+      const bcrypt = await import('bcrypt');
+      const { email, password } = req.body || {};
+
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password required' });
+      }
+
+      // Find organization by email
+      const organization = await storage.getOrganizationByEmail(String(email));
+      if (!organization) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      // Verify password
+      if (!organization.passwordHash) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+      const isValid = await bcrypt.compare(String(password), String(organization.passwordHash));
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      // Find primary tag for organization
+      const tags = await storage.getTagsByOrganization(organization.id);
+      const primaryTag = tags.find((t: any) => t.beneficiaryType === 'charity' || t.beneficiaryType === 'organization');
+
+      // Get wallet info
+      let walletInfo: any = null;
+      if (primaryTag?.walletId) {
+        const wallet = await storage.getWallet(primaryTag.walletId);
+        if (wallet) {
+          walletInfo = {
+            walletId: wallet.id,
+            balanceZAR: wallet.balanceZAR,
+          };
+        }
+      }
+
+      // Optionally create a lightweight session for org login (separate from user)
+      try {
+        req.session.regenerate(() => {
+          (req.session as any).organizationAuth = {
+            organizationId: organization.id,
+            email: organization.email,
+            name: organization.name,
+          };
+          req.session.save(() => {});
+        });
+      } catch (_) {}
+
+      return res.json({
+        organizationId: organization.id,
+        organizationName: organization.name,
+        tagCode: primaryTag?.tagCode || null,
+        referralCode: organization.referralCode || null,
+        wallet: walletInfo,
+      });
+    } catch (error) {
+      console.error('Charity login error:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Charity Credibility API
   router.get('/charity/credibility/:charityCode', async (req, res) => {
     try {
@@ -233,7 +299,7 @@ const router = express.Router();
           referralCode: tag.referralCode || '',
         },
         wallet: {
-          balanceZAR: wallet.balanceZAR,
+          balanceZAR: Number(wallet.balanceZAR) || 0,
         },
         totalDonations,
         donationCount,

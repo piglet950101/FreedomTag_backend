@@ -58,4 +58,47 @@ const router = express.Router();
     }
   });
 
+  // Link Blockkoin account to authenticated user
+  router.post('/blockkoin/link', async (req, res) => {
+    try {
+      if (!req.session?.userAuth) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { accountId } = req.body || {};
+      const id = String(accountId || '').trim();
+
+      if (!id || id.length < 3) {
+        return res.status(400).json({ error: 'Valid Blockkoin account ID is required' });
+      }
+
+      // Optionally check KYC status via Blockkoin API (demo returns 'none')
+      let kycStatus: 'none' | 'pending' | 'verified' | 'rejected' = 'none';
+      try {
+        kycStatus = await blockkoinClient.checkKYCStatus(id);
+      } catch (e) {
+        // In demo mode or API failure, default to 'none'
+        kycStatus = 'none';
+      }
+
+      // Persist on user
+      const userId = req.session.userAuth.userId;
+      await storage.updateUser(userId, {
+        blockkoinAccountId: id,
+        blockkoinKycStatus: kycStatus,
+      });
+
+      const user = await storage.getUser(userId);
+
+      res.json({
+        success: true,
+        blockkoinAccountId: user?.blockkoinAccountId || id,
+        blockkoinKycStatus: user?.blockkoinKycStatus || kycStatus,
+      });
+    } catch (error) {
+      console.error('[Blockkoin Link] Error:', error);
+      res.status(500).json({ error: 'Failed to link Blockkoin account' });
+    }
+  });
+
 export default router;

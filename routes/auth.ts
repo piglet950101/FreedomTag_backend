@@ -3,6 +3,7 @@ import { storage } from '../storage';
 import { blockkoinClient } from '../blockkoin';
 import { db, supabase } from "../db";
 import { Console, log } from 'console';
+import bcrypt from 'bcrypt';
 
 const router = express.Router();
 
@@ -116,6 +117,7 @@ const router = express.Router();
 
       const user = await storage.getUserByEmail(email);
       if (!user) {
+        console.warn('[Auth/Login] No user found for email:', email);
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
@@ -123,6 +125,7 @@ const router = express.Router();
       const bcrypt = await import('bcrypt');
       const isValid = await bcrypt.compare(password, user.passwordHash);
       if (!isValid) {
+        console.warn('[Auth/Login] Password mismatch for email:', email);
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
@@ -130,7 +133,25 @@ const router = express.Router();
       const roles = await storage.getUserRoles(user.id);
 
       // Update last login
-      await storage.updateUserLastLogin(user.id);
+      await storage.updateUserLastLogin(user.id); 
+
+      // Check if user is an organization (charity)
+      let organizationInfo = null;
+      const org = await storage.getOrganizationByEmail(user.email);
+      if (org) {
+        // Find the organization's primary tag
+        const tags = await storage.getTagsByOrganization(org.id);
+        const primaryTag = tags.find((t: any) => t.beneficiaryType === 'charity' || t.beneficiaryType === 'organization');
+        
+        organizationInfo = {
+          organizationId: org.id,
+          organizationName: org.name,
+          tagCode: primaryTag?.tagCode || null,
+        };
+        console.log('[Auth/Login] Organization found for email:', email, 'orgId:', org.id, 'tagCode:', organizationInfo.tagCode);
+      } else {
+        console.log('[Auth/Login] No organization linked for email:', email);
+      }
 
       // Create session
       req.session.regenerate((err) => {
@@ -159,6 +180,7 @@ const router = express.Router();
               avatarUrl: user.avatarUrl,
             },
             roles: roles.map(r => r.role),
+            organization: organizationInfo,
           });
         });
       });
@@ -175,12 +197,33 @@ const router = express.Router();
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
+      console.log('📋 Session userAuth:', req.session.userAuth);
+      
       const user = await storage.getUser(req.session.userAuth.userId);
       if (!user) {
         return res.status(404).json({ error: 'User not found' });
       }
 
+      console.log('👤 User from DB:', { id: user.id, email: user.email, fullName: user.fullName });
+
       const roles = await storage.getUserRoles(user.id);
+
+      // Get beneficiary tag if user has BENEFICIARY role
+      let beneficiaryTag = null;
+      if (roles.some(r => r.role === 'BENEFICIARY')) {
+        console.log('🔍 Looking for tag for userId:', user.id);
+        const tag = await storage.getTagByUserId(user.id);
+        console.log('🏷️ Tag found:', tag);
+        if (tag) {
+          const wallet = await storage.getWallet(tag.walletId);
+          beneficiaryTag = {
+            tagCode: tag.tagCode,
+            beneficiaryName: tag.beneficiaryName,
+            balanceZAR: wallet ? wallet.balanceZar : 0,
+          };
+
+        }
+      }
 
       res.json({
         user: {
@@ -190,8 +233,11 @@ const router = express.Router();
           phone: user.phone,
           country: user.country,
           avatarUrl: user.avatarUrl,
+          blockkoinAccountId: user.blockkoinAccountId,
+          blockkoinKycStatus: user.blockkoinKycStatus,
         },
         roles: roles.map(r => r.role),
+        beneficiaryTag,
       });
     } catch (error) {
       console.error('Get user error:', error);
@@ -207,6 +253,48 @@ const router = express.Router();
       }
       res.json({ success: true });
     });
+  });
+
+  // Change password endpoint
+  router.post('/auth/change-password', async (req, res) => {
+    try {
+      if (!req.session.userAuth) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Current password and new password are required' });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters' });
+      }
+
+      // Get user
+      const user = await storage.getUser(req.session.userAuth.userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Verify current password
+      const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+
+      // Hash new password
+      const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+      // Update password
+      await storage.updateUserPassword(user.id, newPasswordHash);
+
+      res.json({ success: true, message: 'Password changed successfully' });
+    } catch (error) {
+      console.error('Change password error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   // ========== Password Recovery (Biometric KYC) ==========

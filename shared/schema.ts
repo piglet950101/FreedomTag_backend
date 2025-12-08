@@ -134,6 +134,8 @@ export const transactions = pgTable("transactions", {
   donorTagCode: varchar("donor_tag_code"), // Freedom Tag code used to make donation (for account-based tracking)
   blockchainTxHash: text("blockchain_tx_hash"),
   blockchainNetwork: text("blockchain_network"),
+  cryptoPaymentId: text("crypto_payment_id"), // Blockkoin payment ID for tracking
+  status: text("status").default('completed').$type<'pending' | 'completed' | 'failed'>(), // Payment status
 });
 
 export const taxReceipts = pgTable("tax_receipts", {
@@ -164,6 +166,8 @@ export const philanthropists = pgTable("philanthropists", {
   country: text("country"),
   referralCode: varchar("referral_code").unique(),
   referredBy: varchar("referred_by"),
+  blockkoinAccountId: text("blockkoin_account_id"), // Auto-created Blockkoin account
+  blockkoinKycStatus: text("blockkoin_kyc_status").default('none').$type<'none' | 'pending' | 'verified' | 'rejected'>(), // KYC for $50+ transactions
   createdAt: timestamp("created_at").defaultNow(),
 });
 

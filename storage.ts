@@ -63,7 +63,9 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, updates: Partial<User>): Promise<User>;
   updateUserLastLogin(id: string): Promise<User>;
+  updateUserPassword(id: string, passwordHash: string): Promise<User>;
   getUserRoles(userId: string): Promise<UserRole[]>;
   createUserRole(userRole: InsertUserRole): Promise<UserRole>;
   getUserWithRoles(userId: string): Promise<{ user: User; roles: UserRole[] } | undefined>;
@@ -84,6 +86,7 @@ export interface IStorage {
   
   // Tag operations
   getTag(tagCode: string): Promise<Tag | undefined>;
+  getTagByUserId(userId: string): Promise<Tag | undefined>;
   getAllTags(): Promise<Tag[]>;
   getTagsByOrganization(organizationId: string): Promise<Tag[]>;
   createTag(tag: InsertTag): Promise<Tag>;
@@ -105,6 +108,8 @@ export interface IStorage {
   // Transaction operations
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
   getAllTransactions(): Promise<Transaction[]>;
+  updateTransactionAmount(id: string, amount: number): Promise<Transaction>;
+  updateTransactionStatus(id: string, status: 'pending' | 'completed' | 'failed'): Promise<Transaction>;
   
   // Philanthropist operations
   getPhilanthropist(id: string): Promise<Philanthropist | undefined>;
@@ -176,7 +181,12 @@ export class DatabaseStorage implements IStorage {
   private seedPromise: Promise<void>;
 
   constructor() {
-    this.seedPromise = this.seedData();
+    // Start seeding in background. Ensure we catch and log any seed errors
+    // so the server process doesn't crash from an unhandled rejection.
+    this.seedPromise = this.seedData().catch((err) => {
+      console.error('Seeding failed:', err instanceof Error ? err.message : err);
+      // swallow the error to allow the server to continue running in development
+    });
   }
 
   private async ensureSeeded() {
@@ -752,6 +762,34 @@ export class DatabaseStorage implements IStorage {
     return user as User;
   }
 
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    if (supabase) {
+      const { data, error } = await supabase.from('users').update(snakeifyRow(updates)).eq('id', id).select().maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('User not found');
+      return camelizeRow<User>(data as any);
+    }
+
+    // @ts-ignore - bypass mixed-drizzle typing between shared and server
+    const [user] = (await db!.update(users as any).set(updates).where(eq((users as any).id, id)).returning()) as any;
+    if (!user) throw new Error('User not found');
+    return user as User;
+  }
+
+  async updateUserPassword(id: string, passwordHash: string): Promise<User> {
+    if (supabase) {
+      const { data, error } = await supabase.from('users').update({ password_hash: passwordHash }).eq('id', id).select().maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('User not found');
+      return camelizeRow<User>(data as any);
+    }
+
+    // @ts-ignore - bypass mixed-drizzle typing between shared and server
+    const [user] = (await db!.update(users as any).set({ passwordHash }).where(eq((users as any).id, id)).returning()) as any;
+    if (!user) throw new Error('User not found');
+    return user as User;
+  }
+
   async getUserRoles(userId: string): Promise<UserRole[]> {
     if (supabase) {
       const { data, error } = await supabase.from('user_roles').select('*').eq('user_id', userId);
@@ -952,6 +990,21 @@ export class DatabaseStorage implements IStorage {
     return tag || undefined;
   }
 
+  async getTagByUserId(userId: string): Promise<Tag | undefined> {
+    await this.ensureSeeded();
+    if (supabase) {
+      const { data, error } = await supabase.from('tags').select('*').eq('user_id', userId).maybeSingle();
+      if (error) {
+        console.error('Supabase getTagByUserId error:', error.message || error);
+        return undefined;
+      }
+      return data ? camelizeRow<Tag>(data as any) : undefined;
+    }
+    // @ts-ignore - bypass mixed Drizzle typing
+    const [tag] = await db.select().from(tags as any).where(eq((tags as any).userId, userId));
+    return tag || undefined;
+  }
+
   async getAllTags(): Promise<Tag[]> {
     await this.ensureSeeded();
     if (supabase) {
@@ -981,13 +1034,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTag(insertTag: InsertTag): Promise<Tag> {
+    console.log('💾 createTag called with:', insertTag);
     if (supabase) {
-      const { data, error } = await supabase.from('tags').insert(snakeifyRow(insertTag)).select().maybeSingle();
-      if (error) throw error;
-      return camelizeRow<Tag>(data as any);
+      const snakified = snakeifyRow(insertTag);
+      console.log('🐍 Snakified data for Supabase:', snakified);
+      const { data, error } = await supabase.from('tags').insert(snakified).select().maybeSingle();
+      if (error) {
+        console.error('❌ Supabase insert error:', error);
+        throw error;
+      }
+      const result = data ? camelizeRow<Tag>(data as any) : undefined;
+      console.log('✅ Tag created in Supabase, result:', result);
+      return result as Tag;
     }
     // @ts-ignore - fallback for mixed-drizzle types
     const [tag] = (await db.insert(tags as any).values(insertTag).returning()) as any;
+    console.log('✅ Tag created in Drizzle, result:', tag);
     return tag as Tag;
   }
 
@@ -1052,6 +1114,48 @@ export class DatabaseStorage implements IStorage {
 
     // @ts-ignore - fallback for mixed-drizzle types
     return (await db!.select().from(transactions as any).orderBy(desc((transactions as any).ts))) as any as Transaction[];
+  }
+
+  async updateTransactionAmount(id: string, amount: number): Promise<Transaction> {
+    if (supabase) {
+      const { data, error} = await supabase.from('transactions')
+        .update({ amount, status: 'completed' })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Transaction not found');
+      return camelizeRow<Transaction>(data as any);
+    }
+
+    // @ts-ignore - fallback for mixed-drizzle types
+    const [transaction] = (await db!.update(transactions as any)
+      .set({ amount, status: 'completed' })
+      .where(eq((transactions as any).id, id))
+      .returning()) as any;
+    if (!transaction) throw new Error('Transaction not found');
+    return transaction as Transaction;
+  }
+
+  async updateTransactionStatus(id: string, status: 'pending' | 'completed' | 'failed'): Promise<Transaction> {
+    if (supabase) {
+      const { data, error } = await supabase.from('transactions')
+        .update({ status })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Transaction not found');
+      return camelizeRow<Transaction>(data as any);
+    }
+
+    // @ts-ignore - fallback for mixed-drizzle types
+    const [transaction] = (await db!.update(transactions as any)
+      .set({ status })
+      .where(eq((transactions as any).id, id))
+      .returning()) as any;
+    if (!transaction) throw new Error('Transaction not found');
+    return transaction as Transaction;
   }
 
   async getMerchantChain(id: string): Promise<MerchantChain | undefined> {

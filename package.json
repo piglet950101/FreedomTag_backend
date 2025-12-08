@@ -29,6 +29,7 @@
     "passport-local": "^1.0.0",
     "pg": "^8.16.3",
     "pg-pool": "^3.10.1",
+    "stripe": "^20.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

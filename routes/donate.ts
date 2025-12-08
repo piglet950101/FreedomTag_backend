@@ -97,7 +97,7 @@ router.post('/bank/settle', async (req, res) => {
         if (source === 'kiosk') {
             redirectUrl = `/kiosk/donate/${encodeURIComponent(String(tagCode))}?paid=1`;
         } else if (source === 'public') {
-            redirectUrl = `/donor?paid=1&tagCode=${encodeURIComponent(String(tagCode))}`;
+            redirectUrl = `/donor/view/${encodeURIComponent(String(tagCode))}?paid=1`;
             // Only add tax receipt flag, NOT donor email (PII security)
             if (taxReceipt === '1') {
                 redirectUrl += `&taxReceipt=1`;

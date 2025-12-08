@@ -14,6 +14,7 @@ import donorRouter from './routes/donor';
 import blockkoinRouter from './routes/blockkoin';
 import tagRouter from './routes/tag';
 import cryptoRouter from './routes/crypto';
+import stripeRouter from './routes/stripe';
 import organizationsRouter from './routes/organizations';
 import philanthropistRouter from './routes/philanthropist';
 import disasterCampaignsRouter from './routes/disasterCampaigns';
@@ -40,7 +41,7 @@ const CRYPTO_RATES = {
   DOGE: 150        // 1 DOGE = R1.50 ZAR (in cents)
 };
 
-function convertCryptoToZAR(crypto: string, amount: number): number {
+export function convertCryptoToZAR(crypto: string, amount: number): number {
   const rate = CRYPTO_RATES[crypto as keyof typeof CRYPTO_RATES];
   if (!rate) throw new Error('Unknown crypto');
   return Math.floor(amount * rate);
@@ -56,6 +57,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api', blockkoinRouter);
   app.use('/api', tagRouter);
   app.use('/api', cryptoRouter);
+  app.use('/api', stripeRouter);
   app.use('/api', organizationsRouter);
   app.use('/api', philanthropistRouter);
   app.use('/api', disasterCampaignsRouter);

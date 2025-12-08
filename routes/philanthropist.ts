@@ -1,5 +1,8 @@
 import express from 'express';
 import { storage } from '../storage';
+import { convertCryptoToZAR } from '../routes';
+import { blockkoinClient } from '../blockkoin';
+import bcrypt from 'bcrypt';
 
 const router = express.Router();
 
@@ -7,7 +10,7 @@ const router = express.Router();
   router.post('/philanthropist/signup', async (req, res) => {
     try {
       const bcrypt = await import('bcrypt');
-      const { generateReferralCode, calculateReferralReward } = await import('./utils/referral');
+      const { generateReferralCode, calculateReferralReward } = await import('../utils/referral');
       const { email, password, displayName, referredBy } = req.body || {};
       
       if (!email || !password) {
@@ -43,6 +46,23 @@ const router = express.Router();
         }
       }
 
+      // Create or link Blockkoin account
+      let blockkoinAccountId = null;
+      let blockkoinKycStatus = 'none';
+      
+      try {
+        const account = await blockkoinClient.createAccount(
+          String(email),
+          displayName ? String(displayName) : String(email),
+          undefined
+        );
+        blockkoinAccountId = account.id;
+        blockkoinKycStatus = account.kycStatus;
+      } catch (error) {
+        console.error('[Philanthropist Signup] Blockkoin account creation failed:', error);
+        // Continue with signup even if Blockkoin fails
+      }
+
       // Create philanthropist account
       const philanthropist = await storage.createPhilanthropist({
         email: String(email),
@@ -53,6 +73,8 @@ const router = express.Router();
         country: null,
         referralCode,
         referredBy: validReferredBy,
+        blockkoinAccountId: blockkoinAccountId || null,
+        blockkoinKycStatus: blockkoinKycStatus || 'none',
       });
 
       // If referred by someone valid, create referral record and pay reward
@@ -117,7 +139,6 @@ const router = express.Router();
 
   router.post('/philanthropist/login', async (req, res) => {
     try {
-      const bcrypt = await import('bcrypt');
       const { email, password } = req.body || {};
       
       if (!email || !password) {
@@ -189,17 +210,19 @@ const router = express.Router();
       }
 
       const wallet = await storage.getWallet(philanthropist.walletId);
-
       res.json({
         id: philanthropist.id,
         email: philanthropist.email,
         displayName: philanthropist.displayName,
         bio: philanthropist.bio,
         walletId: philanthropist.walletId,
-        balanceZAR: wallet?.balanceZAR || 0,
+        // balanceZAR: wallet?.balanceZAR || 0,
+        balanceZAR: wallet ? wallet.balanceZar : 0,
         isAnonymous: philanthropist.isAnonymous,
         referralCode: philanthropist.referralCode,
         country: philanthropist.country,
+        blockkoinAccountId: philanthropist.blockkoinAccountId,
+        blockkoinKycStatus: philanthropist.blockkoinKycStatus,
       });
     } catch (error) {
       console.error('Get philanthropist error:', error);
@@ -232,7 +255,7 @@ const router = express.Router();
       }
 
       // Update wallet balance (convert ZAR to cents)
-      const newBalance = wallet.balanceZAR + (amountZAR * 100);
+      const newBalance = wallet.balanceZar + (amountZAR * 100);
       await storage.updateWalletBalance(wallet.id, newBalance);
 
       // Create transaction record (amount in cents)
@@ -275,7 +298,7 @@ const router = express.Router();
       const amount = Number(amountZAR);
 
       // Update wallet balance (convert ZAR to cents)
-      const newBalance = wallet.balanceZAR + (amount * 100);
+      const newBalance = wallet.balanceZar + (amount * 100);
       await storage.updateWalletBalance(wallet.id, newBalance);
 
       // Create transaction record (amount in cents)
@@ -303,8 +326,9 @@ const router = express.Router();
 
       // Get all organization tags
       const tags = await storage.getAllTags();
+      
       const organizations = tags
-        .filter(tag => tag.beneficiaryType === 'organization')
+        // .filter(tag => tag.beneficiaryType === 'organization')
         .map(tag => ({
           tagCode: tag.tagCode,
           name: tag.beneficiaryName,

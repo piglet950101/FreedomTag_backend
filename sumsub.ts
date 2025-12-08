@@ -187,7 +187,7 @@ export class DemoSumsubClient {
     const replitDomains = process.env.REPLIT_DOMAINS;
     const baseUrl = replitDomains 
       ? `https://${replitDomains.split(',')[0]}`
-      : 'http://localhost:5000';
+      : 'http://localhost:3000';
     return `${baseUrl}/demo-verification?applicantId=${applicantId}&token=${accessToken}`;
   }
 }
