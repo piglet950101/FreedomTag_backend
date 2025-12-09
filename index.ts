@@ -2,23 +2,47 @@ import "dotenv/config";
 import cors from "cors";
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
+// @ts-ignore - connect-pg-simple doesn't have types
+import connectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
-import { setupClientProxy, log } from "./vite";
+import { setupClientProxy, log } from "./client-proxy";
 import { createSumsubClient, DemoSumsubClient } from "./sumsub";
 import "dotenv/config";
 
 
 const app = express();
+
+// CRITICAL: Trust proxy for serverless/proxy environments (Railway, Vercel, etc.)
+// This ensures Express correctly handles X-Forwarded-* headers and secure cookies
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Allow requests from your frontend origin
-// Allow all origins (reflect the request origin)
-// Note: when credentials: true, we cannot use origin: '*' (wildcard) in browsers.
-// Using origin: true reflects the incoming origin and allows credentials to be sent.
+// Configured allowed origins for CORS
+const allowedOrigins = [
+  'https://freedomtag-client.vercel.app',
+  'http://localhost:5173', // Vite dev server
+];
+
 app.use(
   cors({  
-    origin: true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // In development, allow all origins for flexibility
+        if (process.env.NODE_ENV === 'development') {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      }
+    },
     credentials: true,
   })
 );
@@ -43,18 +67,130 @@ if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET environment variable is required in production');
 }
 
+// Configure session store - use PostgreSQL for production (serverless compatibility)
+// For Supabase, we can use the connection string from SUPABASE_URL
+let sessionStore: any = undefined;
+
+if (process.env.DATABASE_URL) {
+  // Use PostgreSQL session store if DATABASE_URL is available
+  const PgSession = connectPgSimple(session);
+  sessionStore = new PgSession({
+    conString: process.env.DATABASE_URL,
+    tableName: 'session', // Table name for sessions
+    createTableIfMissing: true, // Auto-create table if it doesn't exist
+  });
+  log('Using PostgreSQL session store');
+} else if (process.env.SUPABASE_DB_URL) {
+  // Use Supabase direct database connection URL if provided
+  // Format: postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
+  const PgSession = connectPgSimple(session);
+  sessionStore = new PgSession({
+    conString: process.env.SUPABASE_DB_URL,
+    tableName: 'session',
+    createTableIfMissing: true,
+  });
+  log('Using Supabase PostgreSQL session store');
+} else {
+  log('WARNING: No database connection found. Using memory session store.');
+  log('Sessions will not persist in serverless environments. Set DATABASE_URL or SUPABASE_URL with SUPABASE_DB_PASSWORD.');
+}
+
 // Configure session middleware
-app.use(session({
+// Determine if we need cross-origin cookie settings
+// Check if we're in production (Railway, Vercel, etc.) - not just NODE_ENV
+const isProduction = process.env.NODE_ENV === 'production' || 
+                     process.env.RAILWAY_ENVIRONMENT === 'production' ||
+                     process.env.VERCEL === '1' ||
+                     !process.env.NODE_ENV || // Assume production if not explicitly development
+                     (process.env.PORT && process.env.PORT !== '5173' && process.env.PORT !== '3000');
+
+const frontendUrl = process.env.FRONTEND_URL || allowedOrigins[0];
+// If frontend URL is HTTPS and not localhost, it's cross-origin
+const isCrossOrigin = frontendUrl && 
+                     (frontendUrl.startsWith('https://') || frontendUrl.startsWith('http://')) &&
+                     !frontendUrl.includes('localhost') &&
+                     !frontendUrl.includes('127.0.0.1');
+
+log(`[Session Config] isProduction: ${isProduction}, isCrossOrigin: ${isCrossOrigin}, frontendUrl: ${frontendUrl}`);
+log(`[Session Config] Trust Proxy: ${app.get('trust proxy')}`);
+log(`[Session Config] Session Store: ${sessionStore ? 'CONFIGURED' : 'NOT CONFIGURED (using memory)'}`);
+
+// Warn if no session store is configured in production
+if (isProduction && !sessionStore) {
+  console.error('⚠️  CRITICAL: No session store configured in production!');
+  console.error('⚠️  Sessions will not persist across serverless invocations.');
+  console.error('⚠️  Even if cookies are sent, session data will be lost without a store.');
+  console.error('⚠️  Set DATABASE_URL or SUPABASE_DB_URL environment variable.');
+  console.error('⚠️  Current env vars: DATABASE_URL=' + (process.env.DATABASE_URL ? 'SET' : 'NOT SET'));
+  console.error('⚠️  Current env vars: SUPABASE_DB_URL=' + (process.env.SUPABASE_DB_URL ? 'SET' : 'NOT SET'));
+}
+
+const sessionConfig: session.SessionOptions = {
   secret: process.env.SESSION_SECRET || 'dev-only-secret-' + Math.random().toString(36),
-  resave: false,
+  resave: true, // Changed to true to ensure cookie is always sent
   saveUninitialized: false,
+  store: sessionStore,
+  name: 'freedomtag.sid', // Custom session name
+  rolling: true, // Reset expiration on every request
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    // For cross-origin, secure MUST be true (HTTPS only)
+    // For same-origin, secure can be false in development
+    secure: isCrossOrigin ? true : (isProduction ? true : false),
     httpOnly: true,
     maxAge: 3600000, // 1 hour
-    sameSite: 'lax', // CSRF protection
+    sameSite: isCrossOrigin ? ('none' as const) : ('lax' as const), // 'none' for cross-site, 'lax' for same-site
+    // Don't set domain - allows cross-origin cookies
+    path: '/', // Ensure cookie is available for all paths
   }
-}));
+};
+
+log(`[Session Config] Cookie settings: secure=${sessionConfig.cookie!.secure}, sameSite=${sessionConfig.cookie!.sameSite}, httpOnly=${sessionConfig.cookie!.httpOnly}`);
+
+if (isCrossOrigin) {
+  log('✅ Configured session cookies for cross-origin (sameSite: none, secure: true)');
+  log(`   Frontend: ${frontendUrl}`);
+} else {
+  log('✅ Configured session cookies for same-origin (sameSite: lax)');
+}
+
+app.use(session(sessionConfig));
+
+// Cookie and session debugging middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    // ALWAYS log cookie headers for debugging
+    const cookieHeader = req.headers.cookie;
+    const origin = req.headers.origin;
+    const referer = req.headers.referer;
+    
+    log(`[Cookie Debug] ${req.method} ${req.path}`);
+    log(`  Origin: ${origin || 'none'}`);
+    log(`  Referer: ${referer || 'none'}`);
+    log(`  Request Cookie: ${cookieHeader || 'MISSING - Browser not sending cookie!'}`);
+    log(`  SessionID: ${req.sessionID}`);
+    log(`  Has userAuth: ${!!req.session.userAuth}`);
+    log(`  Has philanthropistAuth: ${!!req.session.philanthropistAuth}`);
+    
+    // Log cookie in response for login endpoints
+    if (req.path.includes('/login') || req.path.includes('/signup')) {
+      res.on('finish', () => {
+        const setCookie = res.getHeader('set-cookie');
+        log(`[Login Response] Set-Cookie header: ${setCookie ? JSON.stringify(setCookie) : 'MISSING!'}`);
+        log(`[Login Response] SessionID: ${req.sessionID}`);
+      });
+    }
+    
+    // Log cookie for /me endpoints to see if cookie is being received
+    if (req.path.includes('/me')) {
+      log(`[Me Endpoint] Cookie received: ${cookieHeader ? 'YES' : 'NO'}`);
+      if (!cookieHeader) {
+        log(`[Me Endpoint] WARNING: No cookie in request! Browser may be blocking it.`);
+        log(`[Me Endpoint] Check: 1) CORS credentials, 2) Cookie SameSite settings, 3) Browser console for errors`);
+      }
+    }
+  }
+  next();
+});
 
 // Extend express session type
 declare module 'express-session' {
@@ -121,7 +257,7 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
+  // importantly only setup client proxy in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   // In development the client is intended to be run separately and the server will
@@ -134,7 +270,7 @@ app.use((req, res, next) => {
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '3000', 10);
   server.listen({
-    port,
+    port:3000,
     host: "0.0.0.0",
     reusePort: true,
   }, () => {

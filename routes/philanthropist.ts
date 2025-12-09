@@ -160,7 +160,8 @@ const router = express.Router();
       // Create session
       req.session.regenerate((err) => {
         if (err) {
-          return res.status(500).json({ error: 'Session error' });
+          console.error('[Philanthropist/Login] Session regenerate error:', err);
+          return res.status(500).json({ error: 'Session error', details: process.env.NODE_ENV === 'development' ? String(err) : undefined });
         }
 
         req.session.philanthropistAuth = {
@@ -168,10 +169,53 @@ const router = express.Router();
           email: philanthropist.email,
         };
 
+        console.log('[Philanthropist/Login] Session created for philanthropist:', philanthropist.id, 'SessionID:', req.sessionID);
+
         req.session.save((err) => {
           if (err) {
-            return res.status(500).json({ error: 'Session save error' });
+            console.error('[Philanthropist/Login] Session save error:', err);
+            return res.status(500).json({ error: 'Session save error', details: process.env.NODE_ENV === 'development' ? String(err) : undefined });
           }
+
+          console.log('[Philanthropist/Login] Session saved successfully for philanthropist:', philanthropist.id);
+          console.log('[Philanthropist/Login] SessionID after save:', req.sessionID);
+
+          // Check what express-session set (for debugging)
+          const existingCookie = res.getHeader('set-cookie');
+          if (existingCookie) {
+            console.log('[Philanthropist/Login] express-session set cookie:', typeof existingCookie === 'string' ? existingCookie : JSON.stringify(existingCookie));
+          }
+
+          // ALWAYS manually set cookie with correct cross-origin settings
+          // express-session might set it with wrong SameSite, so we override it
+          const cookieName = 'freedomtag.sid';
+          const cookieValue = req.sessionID;
+          const isProduction = process.env.NODE_ENV === 'production' || 
+                              process.env.RAILWAY_ENVIRONMENT === 'production' ||
+                              process.env.VERCEL === '1';
+          const frontendUrl = process.env.FRONTEND_URL || 'https://freedomtag-client.vercel.app';
+          const isCrossOrigin = frontendUrl && 
+                               (frontendUrl.startsWith('https://') || frontendUrl.startsWith('http://')) &&
+                               !frontendUrl.includes('localhost') &&
+                               !frontendUrl.includes('127.0.0.1');
+          
+          const cookieOptions: any = {
+            httpOnly: true,
+            maxAge: 3600000,
+            path: '/',
+            secure: isCrossOrigin ? true : isProduction, // Must be true for SameSite=None
+            sameSite: isCrossOrigin ? 'none' : 'lax',
+          };
+          
+          // Override any existing cookie with correct settings
+          res.cookie(cookieName, cookieValue, cookieOptions);
+          console.log('[Philanthropist/Login] Overrode cookie with sameSite:', cookieOptions.sameSite, 'secure:', cookieOptions.secure, 'isCrossOrigin:', isCrossOrigin);
+
+          // Log the Set-Cookie header that will be sent
+          res.on('finish', () => {
+            const setCookie = res.getHeader('set-cookie');
+            console.log('[Philanthropist/Login] Response Set-Cookie:', setCookie ? JSON.stringify(setCookie) : 'NOT SET!');
+          });
 
           res.json({
             id: philanthropist.id,
@@ -199,7 +243,10 @@ const router = express.Router();
 
   router.get('/philanthropist/me', async (req, res) => {
     try {
+      console.log('[Philanthropist/Me] SessionID:', req.sessionID, 'Has philanthropistAuth:', !!req.session.philanthropistAuth);
+      
       if (!req.session.philanthropistAuth) {
+        console.warn('[Philanthropist/Me] No philanthropistAuth in session. SessionID:', req.sessionID);
         return res.status(401).json({ error: 'Not authenticated' });
       }
 

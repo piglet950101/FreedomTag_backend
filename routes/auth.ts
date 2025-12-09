@@ -156,7 +156,8 @@ const router = express.Router();
       // Create session
       req.session.regenerate((err) => {
         if (err) {
-          return res.status(500).json({ error: 'Session error' });
+          console.error('[Auth/Login] Session regenerate error:', err);
+          return res.status(500).json({ error: 'Session error', details: process.env.NODE_ENV === 'development' ? String(err) : undefined });
         }
 
         req.session.userAuth = {
@@ -165,10 +166,90 @@ const router = express.Router();
           fullName: user.fullName,
         };
 
-        req.session.save((err) => {
-          if (err) {
-            return res.status(500).json({ error: 'Session save error' });
-          }
+        console.log('[Auth/Login] Session created for user:', user.id, 'SessionID:', req.sessionID);
+
+        // Save session and send response
+          req.session.save((err) => {
+            if (err) {
+              console.error('[Auth/Login] Session save error:', err);
+              return res.status(500).json({ error: 'Session save error', details: process.env.NODE_ENV === 'development' ? String(err) : undefined });
+            }
+
+            console.log('[Auth/Login] Session saved successfully for user:', user.id);
+            console.log('[Auth/Login] SessionID after save:', req.sessionID);
+
+            // Check what express-session set (for debugging)
+            const existingCookie = res.getHeader('set-cookie');
+            if (existingCookie) {
+              console.log('[Auth/Login] express-session set cookie:', typeof existingCookie === 'string' ? existingCookie : JSON.stringify(existingCookie));
+            }
+
+            // ALWAYS manually set cookie with correct cross-origin settings
+            // express-session might set it with wrong SameSite, so we override it
+            const cookieName = 'freedomtag.sid';
+            const cookieValue = req.sessionID;
+            const isProduction = process.env.NODE_ENV === 'production' || 
+                                process.env.RAILWAY_ENVIRONMENT === 'production' ||
+                                process.env.VERCEL === '1';
+            const frontendUrl = process.env.FRONTEND_URL || 'https://freedomtag-client.vercel.app';
+            const isCrossOrigin = frontendUrl && 
+                                 (frontendUrl.startsWith('https://') || frontendUrl.startsWith('http://')) &&
+                                 !frontendUrl.includes('localhost') &&
+                                 !frontendUrl.includes('127.0.0.1');
+            
+            const cookieOptions: any = {
+              httpOnly: true,
+              maxAge: 3600000,
+              path: '/',
+              secure: isCrossOrigin ? true : isProduction, // Must be true for SameSite=None
+              sameSite: isCrossOrigin ? 'none' : 'lax',
+              // Explicitly don't set domain for cross-origin cookies
+              // The browser will scope it to the domain that set it
+            };
+            
+            // CRITICAL: Set cookie BEFORE sending response
+            // Override any existing cookie with correct settings
+            // Use res.cookie() which will properly format the Set-Cookie header
+            res.cookie(cookieName, cookieValue, cookieOptions);
+            console.log('[Auth/Login] Set cookie:', {
+              name: cookieName,
+              value: cookieValue.substring(0, 10) + '...',
+              sameSite: cookieOptions.sameSite,
+              secure: cookieOptions.secure,
+              httpOnly: cookieOptions.httpOnly,
+              path: cookieOptions.path,
+              maxAge: cookieOptions.maxAge,
+              isCrossOrigin,
+              trustProxy: res.app.get('trust proxy')
+            });
+
+            // Verify cookie is in response headers BEFORE sending response
+            const cookieAfterSet = res.getHeader('set-cookie');
+            console.log('[Auth/Login] Cookie in headers after res.cookie():', cookieAfterSet ? 'YES' : 'NO');
+            if (cookieAfterSet) {
+              const cookieStr = Array.isArray(cookieAfterSet) ? cookieAfterSet[0] : String(cookieAfterSet);
+              console.log('[Auth/Login] Cookie string:', cookieStr);
+              // Verify SameSite=None is in the cookie
+              if (cookieStr.includes('SameSite=None')) {
+                console.log('[Auth/Login] ✅ Cookie has SameSite=None');
+              } else {
+                console.error('[Auth/Login] ❌ Cookie does NOT have SameSite=None!');
+              }
+              // Verify Secure is in the cookie
+              if (cookieStr.includes('Secure')) {
+                console.log('[Auth/Login] ✅ Cookie has Secure');
+              } else {
+                console.error('[Auth/Login] ❌ Cookie does NOT have Secure!');
+              }
+            } else {
+              console.error('[Auth/Login] ❌ CRITICAL: Cookie NOT in response headers!');
+            }
+
+            // Log the Set-Cookie header that will be sent
+            res.on('finish', () => {
+              const setCookie = res.getHeader('set-cookie');
+              console.log('[Auth/Login] Final Response Set-Cookie:', setCookie ? JSON.stringify(setCookie) : 'NOT SET!');
+            });
 
           res.json({
             user: {
@@ -193,7 +274,10 @@ const router = express.Router();
   // Get current user
   router.get('/auth/me', async (req, res) => {
     try {
+      console.log('[Auth/Me] SessionID:', req.sessionID, 'Has userAuth:', !!req.session.userAuth);
+      
       if (!req.session.userAuth) {
+        console.warn('[Auth/Me] No userAuth in session. SessionID:', req.sessionID);
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
