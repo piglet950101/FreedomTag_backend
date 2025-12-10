@@ -2,14 +2,17 @@ import express from 'express';
 import { storage } from '../storage';
 import { convertCryptoToZAR } from '../routes';
 import { blockkoinClient } from '../blockkoin';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
+import { getCookieOptions } from '../utils/cookie';
+import { generateToken } from '../utils/jwt';
+import { authenticateJWT } from '../middleware/auth';
 
 const router = express.Router();
 
   // Philanthropist API
   router.post('/philanthropist/signup', async (req, res) => {
     try {
-      const bcrypt = await import('bcrypt');
+      const bcrypt = await import('bcryptjs');
       const { generateReferralCode, calculateReferralReward } = await import('../utils/referral');
       const { email, password, displayName, referredBy } = req.body || {};
       
@@ -87,7 +90,7 @@ const router = express.Router();
           try {
             const referrerWallet = await storage.getWallet(referrer.walletId);
             if (referrerWallet) {
-              await storage.updateWalletBalance(referrer.walletId, referrerWallet.balanceZAR + rewardAmount);
+              await storage.updateWalletBalance(referrer.walletId, ((referrerWallet as any).balanceZar || referrerWallet.balanceZAR || 0) + rewardAmount);
               rewardPaid = 1; // Mark as paid only if wallet credit succeeded
             }
           } catch (error) {
@@ -122,6 +125,15 @@ const router = express.Router();
             return res.status(500).json({ error: 'Session save error' });
           }
 
+          // Set cookie with correct options for localhost vs production
+          const cookieOptions = getCookieOptions(req);
+          res.cookie('freedomtag.sid', req.sessionID, cookieOptions);
+          console.log('[Philanthropist/Signup] Set cookie:', {
+            sameSite: cookieOptions.sameSite,
+            secure: cookieOptions.secure,
+            isLocalhost: cookieOptions.sameSite === 'lax'
+          });
+
           res.json({
             id: philanthropist.id,
             email: philanthropist.email,
@@ -145,113 +157,81 @@ const router = express.Router();
         return res.status(400).json({ error: 'Email and password required' });
       }
 
+      console.log('[Philanthropist/Login] Attempting login for email:', email);
+
       // Find philanthropist
       const philanthropist = await storage.getPhilanthropistByEmail(String(email));
       if (!philanthropist) {
+        console.warn('[Philanthropist/Login] No philanthropist found for email:', email);
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
       // Verify password
       const isValid = await bcrypt.compare(String(password), philanthropist.passwordHash);
       if (!isValid) {
+        console.warn('[Philanthropist/Login] Password mismatch for email:', email);
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      // Create session
-      req.session.regenerate((err) => {
-        if (err) {
-          console.error('[Philanthropist/Login] Session regenerate error:', err);
-          return res.status(500).json({ error: 'Session error', details: process.env.NODE_ENV === 'development' ? String(err) : undefined });
-        }
+      console.log('[Philanthropist/Login] Password verified for philanthropist:', philanthropist.id);
 
-        req.session.philanthropistAuth = {
-          philanthropistId: philanthropist.id,
-          email: philanthropist.email,
-        };
+      // Generate JWT token
+      const token = generateToken({ 
+        philanthropistId: philanthropist.id, 
+        email: philanthropist.email,
+        type: 'philanthropist'
+      });
 
-        console.log('[Philanthropist/Login] Session created for philanthropist:', philanthropist.id, 'SessionID:', req.sessionID);
+      console.log('[Philanthropist/Login] JWT token generated for philanthropist:', philanthropist.id);
 
-        req.session.save((err) => {
-          if (err) {
-            console.error('[Philanthropist/Login] Session save error:', err);
-            return res.status(500).json({ error: 'Session save error', details: process.env.NODE_ENV === 'development' ? String(err) : undefined });
-          }
+      // Set token in cookie (optional, for convenience)
+      const cookieOptions = getCookieOptions(req);
+      res.cookie('authToken', token, {
+        ...cookieOptions,
+        httpOnly: false, // Allow client-side access for Authorization header
+      });
 
-          console.log('[Philanthropist/Login] Session saved successfully for philanthropist:', philanthropist.id);
-          console.log('[Philanthropist/Login] SessionID after save:', req.sessionID);
-
-          // Check what express-session set (for debugging)
-          const existingCookie = res.getHeader('set-cookie');
-          if (existingCookie) {
-            console.log('[Philanthropist/Login] express-session set cookie:', typeof existingCookie === 'string' ? existingCookie : JSON.stringify(existingCookie));
-          }
-
-          // ALWAYS manually set cookie with correct cross-origin settings
-          // express-session might set it with wrong SameSite, so we override it
-          const cookieName = 'freedomtag.sid';
-          const cookieValue = req.sessionID;
-          const isProduction = process.env.NODE_ENV === 'production' || 
-                              process.env.RAILWAY_ENVIRONMENT === 'production' ||
-                              process.env.VERCEL === '1';
-          const frontendUrl = process.env.FRONTEND_URL || 'https://freedomtag-client.vercel.app';
-          const isCrossOrigin = frontendUrl && 
-                               (frontendUrl.startsWith('https://') || frontendUrl.startsWith('http://')) &&
-                               !frontendUrl.includes('localhost') &&
-                               !frontendUrl.includes('127.0.0.1');
-          
-          const cookieOptions: any = {
-            httpOnly: true,
-            maxAge: 3600000,
-            path: '/',
-            secure: isCrossOrigin ? true : isProduction, // Must be true for SameSite=None
-            sameSite: isCrossOrigin ? 'none' : 'lax',
-          };
-          
-          // Override any existing cookie with correct settings
-          res.cookie(cookieName, cookieValue, cookieOptions);
-          console.log('[Philanthropist/Login] Overrode cookie with sameSite:', cookieOptions.sameSite, 'secure:', cookieOptions.secure, 'isCrossOrigin:', isCrossOrigin);
-
-          // Log the Set-Cookie header that will be sent
-          res.on('finish', () => {
-            const setCookie = res.getHeader('set-cookie');
-            console.log('[Philanthropist/Login] Response Set-Cookie:', setCookie ? JSON.stringify(setCookie) : 'NOT SET!');
-          });
-
-          res.json({
-            id: philanthropist.id,
-            email: philanthropist.email,
-            displayName: philanthropist.displayName,
-            walletId: philanthropist.walletId,
-            referralCode: philanthropist.referralCode,
-          });
-        });
+      res.json({
+        token, // Send token in response body (primary method)
+        id: philanthropist.id,
+        email: philanthropist.email,
+        displayName: philanthropist.displayName,
+        walletId: philanthropist.walletId,
+        referralCode: philanthropist.referralCode,
+        expiresIn: '7d', // Match JWT_EXPIRES_IN default
       });
     } catch (error) {
-      console.error('Philanthropist login error:', error);
+      console.error('[Philanthropist/Login] Error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
 
   router.post('/philanthropist/logout', (req, res) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to logout' });
-      }
-      res.json({ success: true });
+    // JWT is stateless, so logout is handled client-side by removing the token
+    // Clear the authToken cookie if it exists
+    res.clearCookie('authToken', {
+      httpOnly: false,
+      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      sameSite: 'lax',
+      path: '/',
     });
+    
+    console.log('[Philanthropist/Logout] Logout successful');
+    res.json({ success: true, message: 'Logged out successfully' });
   });
 
-  router.get('/philanthropist/me', async (req, res) => {
+  router.get('/philanthropist/me', authenticateJWT, async (req, res) => {
     try {
-      console.log('[Philanthropist/Me] SessionID:', req.sessionID, 'Has philanthropistAuth:', !!req.session.philanthropistAuth);
+      console.log('[Philanthropist/Me] Request received. User:', req.user);
       
-      if (!req.session.philanthropistAuth) {
-        console.warn('[Philanthropist/Me] No philanthropistAuth in session. SessionID:', req.sessionID);
+      if (!req.user || !req.user.philanthropistId) {
+        console.log('[Philanthropist/Me] Missing user or philanthropistId. User:', req.user);
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
+      console.log('[Philanthropist/Me] Fetching philanthropist with ID:', req.user.philanthropistId);
       // Get philanthropist by ID
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(req.user.philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -264,7 +244,7 @@ const router = express.Router();
         bio: philanthropist.bio,
         walletId: philanthropist.walletId,
         // balanceZAR: wallet?.balanceZAR || 0,
-        balanceZAR: wallet ? wallet.balanceZar : 0,
+        balanceZAR: wallet ? ((wallet as any).balanceZar || wallet.balanceZAR || 0) : 0,
         isAnonymous: philanthropist.isAnonymous,
         referralCode: philanthropist.referralCode,
         country: philanthropist.country,
@@ -302,7 +282,7 @@ const router = express.Router();
       }
 
       // Update wallet balance (convert ZAR to cents)
-      const newBalance = wallet.balanceZar + (amountZAR * 100);
+      const newBalance = ((wallet as any).balanceZar || wallet.balanceZAR || 0) + (amountZAR * 100);
       await storage.updateWalletBalance(wallet.id, newBalance);
 
       // Create transaction record (amount in cents)
@@ -345,7 +325,7 @@ const router = express.Router();
       const amount = Number(amountZAR);
 
       // Update wallet balance (convert ZAR to cents)
-      const newBalance = wallet.balanceZar + (amount * 100);
+      const newBalance = ((wallet as any).balanceZar || wallet.balanceZAR || 0) + (amount * 100);
       await storage.updateWalletBalance(wallet.id, newBalance);
 
       // Create transaction record (amount in cents)
@@ -420,13 +400,16 @@ const router = express.Router();
 
       const amount = Number(amountZAR);
       const amountInCents = amount * 100;
-      if (fromWallet.balanceZAR < amountInCents) {
+      const fromBalance = (fromWallet as any).balanceZar || fromWallet.balanceZAR || 0;
+      const toBalance = (toWallet as any).balanceZar || toWallet.balanceZAR || 0;
+      
+      if (fromBalance < amountInCents) {
         return res.status(400).json({ error: 'Insufficient balance' });
       }
 
       // Transfer funds (amounts in cents)
-      await storage.updateWalletBalance(fromWallet.id, fromWallet.balanceZAR - amountInCents);
-      await storage.updateWalletBalance(toWallet.id, toWallet.balanceZAR + amountInCents);
+      await storage.updateWalletBalance(fromWallet.id, fromBalance - amountInCents);
+      await storage.updateWalletBalance(toWallet.id, toBalance + amountInCents);
 
       // Create transaction record with optional donor name (amount in cents)
       const donationRef = donorName 
@@ -482,13 +465,16 @@ const router = express.Router();
 
       const amount = Number(amountZAR);
       const amountInCents = amount * 100;
-      if (fromWallet.balanceZAR < amountInCents) {
+      const fromBalance = (fromWallet as any).balanceZar || fromWallet.balanceZAR || 0;
+      const toBalance = (toWallet as any).balanceZar || toWallet.balanceZAR || 0;
+      
+      if (fromBalance < amountInCents) {
         return res.status(400).json({ error: 'Insufficient balance' });
       }
 
       // Transfer funds (amounts in cents)
-      await storage.updateWalletBalance(fromWallet.id, fromWallet.balanceZAR - amountInCents);
-      await storage.updateWalletBalance(toWallet.id, toWallet.balanceZAR + amountInCents);
+      await storage.updateWalletBalance(fromWallet.id, fromBalance - amountInCents);
+      await storage.updateWalletBalance(toWallet.id, toBalance + amountInCents);
 
       // Create transaction record (amount in cents)
       await storage.createTransaction({
@@ -496,7 +482,7 @@ const router = express.Router();
         fromWalletId: fromWallet.id,
         toWalletId: toWallet.id,
         amount: amountInCents,
-        ref: `Payment to ${outlet.name}`,
+        ref: `Payment to ${outlet.displayName}`,
       });
 
       res.json({ success: true, amountZAR: amount });
@@ -506,14 +492,14 @@ const router = express.Router();
     }
   });
 
-  // Recurring Donation API endpoints
-  router.post('/philanthropist/recurring-donations', async (req, res) => {
+  // Recurring Donation API endpoints (using JWT)
+  router.post('/philanthropist/recurring-donations', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      if (!req.user || !req.user.philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(req.user.philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -564,13 +550,13 @@ const router = express.Router();
     }
   });
 
-  router.get('/philanthropist/recurring-donations', async (req, res) => {
+  router.get('/philanthropist/recurring-donations', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      if (!req.user || !req.user.philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(req.user.philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -583,13 +569,13 @@ const router = express.Router();
     }
   });
 
-  router.patch('/philanthropist/recurring-donations/:id', async (req, res) => {
+  router.patch('/philanthropist/recurring-donations/:id', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      if (!req.user || !req.user.philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(req.user.philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }

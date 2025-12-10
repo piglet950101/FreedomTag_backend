@@ -3,16 +3,31 @@ import { storage } from '../storage';
 import { blockkoinClient } from "../blockkoin";
 import { log } from 'console';
 import crypto from 'crypto';
+import { authenticateJWT, optionalJWT } from '../middleware/auth';
 
 const router = express.Router();
 
 // ========== Crypto Balance APIs ==========
-// Get crypto balances for authenticated user
-router.get('/crypto/balances', async (req, res) => {
+// Get crypto balances for authenticated user (using JWT)
+router.get('/crypto/balances', optionalJWT, async (req, res) => {
   try {
-    // Check both user and philanthropist sessions
-    const userId = req.session?.userAuth?.userId;
-    const philanthropistId = req.session?.philanthropistAuth?.philanthropistId;
+    // Check JWT token first (primary auth method)
+    let userId = null;
+    let philanthropistId = null;
+
+    if (req.user) {
+      if (req.user.userId) {
+        userId = req.user.userId;
+      } else if (req.user.philanthropistId) {
+        philanthropistId = req.user.philanthropistId;
+      }
+    }
+
+    // Fallback to session-based auth for legacy support
+    if (!userId && !philanthropistId) {
+      userId = req.session?.userAuth?.userId;
+      philanthropistId = req.session?.philanthropistAuth?.philanthropistId;
+    }
 
     if (!userId && !philanthropistId) {
       return res.status(401).json({ error: 'Not authenticated' });
@@ -121,14 +136,14 @@ router.post('/crypto/donate', async (req, res) => {
         const account = await blockkoinClient.createAccount(
           beneficiary.email,
           beneficiary.fullName,
-          beneficiary.country
+          beneficiary.country || undefined
         );
         blockkoinAccountId = account.id;
 
         // Update user with Blockkoin account
         await storage.updateUser(beneficiary.id, {
-          blockkoinAccountId: account.id,
-          blockkoinKycStatus: account.kycStatus,
+          blockkoinAccountId: account.id || undefined,
+          blockkoinKycStatus: account.kycStatus || undefined,
         });
       } catch (error) {
         console.error('[Blockkoin] Failed to create account:', error);
@@ -137,6 +152,9 @@ router.post('/crypto/donate', async (req, res) => {
     }
 
     // Create payment request
+    if (!blockkoinAccountId) {
+      return res.status(400).json({ error: 'Blockkoin account ID is required' });
+    }
     const payment = await blockkoinClient.createPayment({
       amount: cryptoAmount,
       currency: cryptoCurrency,
@@ -221,6 +239,10 @@ router.post('/crypto/webhook/blockkoin', async (req, res) => {
       await storage.updateTransactionAmount(transaction.id, convertedAmountZAR);
 
       // Update beneficiary wallet balance
+      if (!transaction.toWalletId) {
+        console.error('[Blockkoin Webhook] Transaction missing toWalletId');
+        return res.status(400).json({ error: 'Transaction missing wallet ID' });
+      }
       const wallet = await storage.getWallet(transaction.toWalletId);
       if (wallet) {
         await storage.updateWalletBalance(
@@ -309,7 +331,7 @@ router.post('/crypto/settle', async (req, res) => {
 
     // Update balance (convert ZAR to cents)
 
-    await storage.updateWalletBalance(wallet.id, wallet.balanceZar + (Number(amountZAR) * 100));
+    await storage.updateWalletBalance(wallet.id, wallet.balanceZAR + (Number(amountZAR) * 100));
 
     // Record transaction with crypto details (amount in cents)
     await storage.createTransaction({

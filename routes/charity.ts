@@ -6,7 +6,7 @@ const router = express.Router();
   // Charity/Organization Signup API
   router.post('/charity/signup', async (req, res) => {
     try {
-      const bcrypt = await import('bcrypt');
+      const bcrypt = await import('bcryptjs');
       const { generateReferralCode, calculateReferralReward } = await import('../utils/referral');
       const {
         organizationName,
@@ -149,17 +149,24 @@ const router = express.Router();
   // Charity/Organization Login API
   router.post('/charity/login', async (req, res) => {
     try {
-      const bcrypt = await import('bcrypt');
+      const bcrypt = await import('bcryptjs');
       const { email, password } = req.body || {};
 
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password required' });
       }
 
+      // Check if email exists as a user (beneficiary) first
+      const user = await storage.getUserByEmail(String(email));
+      if (user) {
+        // Email exists as a beneficiary, not as a charity
+        return res.status(401).json({ error: 'This email is registered as a beneficiary, not as a charity. Please use the beneficiary login page.' });
+      }
+
       // Find organization by email
       const organization = await storage.getOrganizationByEmail(String(email));
       if (!organization) {
-        return res.status(401).json({ error: 'Invalid email or password' });
+        return res.status(401).json({ error: 'This email is not registered as a charity. Please check your email or sign up as a charity.' });
       }
 
       // Verify password
@@ -272,10 +279,10 @@ const router = express.Router();
           const referrerDonations = charityTransactions.filter(tx =>
             tx.fromWalletId === referrerData.walletId
           );
-          const totalDonated = referrerDonations.reduce((sum, tx) => sum + tx.amountZAR, 0);
+          const totalDonated = referrerDonations.reduce((sum, tx) => sum + tx.amount, 0);
 
           referrer = {
-            name: referrerData.type === 'PHILANTHROPIST' ? 'Anonymous Philanthropist' : referrerData.name || 'Unknown',
+            name: referrerData.type === 'PHILANTHROPIST' ? 'Anonymous Philanthropist' : 'Unknown',
             type: referrerData.type,
             totalDonated,
           };

@@ -15,16 +15,33 @@ router.get('/tag/:tagCode', async (req, res) => {
       return res.status(404).json({ error: 'unknown tag' });
     }
     const wallet = await storage.getWallet(tag.walletId);
-    console.log('💰 Tag wallet:', wallet ? wallet.balanceZar : 0);
     if (!wallet) {
       return res.status(404).json({ error: 'wallet not found' });
     }
+
+    // Get organization info if tag is linked to an organization
+    let organization = null;
+    if (tag.organizationId) {
+      const org = await storage.getOrganization(tag.organizationId);
+      if (org) {
+        organization = {
+          name: org.name,
+          smartContractAddress: org.smartContractAddress || null,
+          blockchainNetwork: org.blockchainNetwork || null,
+        };
+      }
+    }
+
     res.json({
       tagCode: tag.tagCode,
       walletId: wallet.id,
-      balanceZAR: wallet ? wallet.balanceZar : 0,
+      balanceZAR: wallet.balanceZAR || 0,
+      beneficiaryName: tag.beneficiaryName || null,
+      beneficiaryType: tag.beneficiaryType || null,
+      organization: organization,
     });
   } catch (error) {
+    console.error('Get tag error:', error);
     res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -48,6 +65,69 @@ router.get('/tags/list', async (_req, res) => {
   }
 });
 
+// Get donations for a specific tag - MUST be before /tag/:tagCode/info to avoid route conflicts
+router.get('/tag/:tagCode/donations', async (req, res) => {
+  try {
+    const tagCode = String(req.params.tagCode);
+    const tag = await storage.getTag(tagCode);
+    
+    if (!tag) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    const wallet = await storage.getWallet(tag.walletId);
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    // Get all transactions and filter for donations to this tag
+    const allTransactions = await storage.getAllTransactions();
+    const donationsReceived = allTransactions
+      .filter(tx => {
+        // Support multiple donation kinds
+        const isDonation = tx.kind === 'DONATION' || tx.kind === 'GIVE' || tx.kind === 'DONOR' || tx.kind === 'PHILANTHROPIST_DONATION';
+        return isDonation && tx.toWalletId === wallet.id;
+      })
+      .sort((a, b) => {
+        // Handle cases where ts might be null/undefined or not a Date
+        const aTime = a.ts ? (a.ts instanceof Date ? a.ts.getTime() : new Date(a.ts).getTime()) : 0;
+        const bTime = b.ts ? (b.ts instanceof Date ? b.ts.getTime() : new Date(b.ts).getTime()) : 0;
+        return bTime - aTime; // Most recent first
+      })
+      .slice(0, 10) // Limit to 10 most recent
+      .map(tx => {
+        // Safely convert ts to ISO string
+        let createdAt = new Date().toISOString();
+        if (tx.ts) {
+          try {
+            createdAt = tx.ts instanceof Date ? tx.ts.toISOString() : new Date(tx.ts).toISOString();
+          } catch (e) {
+            // If date parsing fails, use current date
+            createdAt = new Date().toISOString();
+          }
+        }
+
+        return {
+          id: tx.id,
+          amount: tx.amount || 0,
+          createdAt,
+          donorName: (tx as any).donorName || null,
+          donorEmail: (tx as any).donorEmail || null,
+          currency: tx.currency || 'ZAR',
+        };
+      });
+
+    res.json({
+      donations: donationsReceived,
+    });
+  } catch (error) {
+    console.error('Get tag donations error:', error);
+    // Return empty array instead of error to prevent page breakage
+    res.json({
+      donations: [],
+    });
+  }
+});
 
 router.get('/tag/:tagCode/info', async (req, res) => {
   try {
@@ -69,8 +149,6 @@ router.get('/tag/:tagCode/info', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
-
 
   // Quick Tag Setup - For street encounters (giver creates tag for receiver)
   router.post('/quick-tag-setup', async (req, res) => {
@@ -192,7 +270,7 @@ router.get('/tag/:tagCode/info', async (req, res) => {
       // Validate access code (demo: use org email as access code for simplicity)
       // In production, this would be a secure credential system
       if (accessCode !== organization.email) {
-        return res.status(401).json({ error: 'Invalid access code' });
+        return res.status(403).json({ error: 'Invalid access code' });
       }
 
       // Use organization's default PIN (fallback to "1066" if not set)

@@ -50,17 +50,20 @@ export class BlockkoinClient {
   constructor() {
     const apiKey = process.env.BLOCKKOIN_API_KEY;
     const apiSecret = process.env.BLOCKKOIN_API_SECRET;
+    const baseUrl = process.env.BLOCKKOIN_BASE_URL || 'https://api.blockkoin.com/v1';
     
     this.demoMode = !apiKey || !apiSecret;
     
     this.config = {
       apiKey: apiKey || 'demo_key',
       apiSecret: apiSecret || 'demo_secret',
-      baseUrl: 'https://api.blockkoin.com/v1', // Update with actual Blockkoin API URL
+      baseUrl: baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl, // Remove trailing slash if present
     };
 
     if (this.demoMode) {
       console.log('[Blockkoin DEMO API] Running in DEMO mode - using simulated API calls for development');
+    } else {
+      console.log('[Blockkoin API] Initialized with base URL:', this.config.baseUrl);
     }
   }
 
@@ -102,7 +105,7 @@ export class BlockkoinClient {
       throw new Error(`Blockkoin account creation failed: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as BlockkoinAccount;
   }
 
   /**
@@ -129,7 +132,7 @@ export class BlockkoinClient {
       throw new Error(`Blockkoin account lookup failed: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as BlockkoinAccount;
   }
 
   /**
@@ -169,7 +172,7 @@ export class BlockkoinClient {
       throw new Error(`Failed to fetch exchange rates: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as ExchangeRate[];
   }
 
   /**
@@ -208,7 +211,7 @@ export class BlockkoinClient {
       throw new Error(`Payment creation failed: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as CryptoPayment;
   }
 
   /**
@@ -240,7 +243,7 @@ export class BlockkoinClient {
       throw new Error(`KYC initiation failed: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as { kycUrl: string; status: string };
   }
 
   /**
@@ -262,7 +265,7 @@ export class BlockkoinClient {
       throw new Error(`KYC status check failed: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { status: 'none' | 'pending' | 'verified' | 'rejected' };
     return data.status;
   }
 
@@ -284,7 +287,7 @@ export class BlockkoinClient {
       throw new Error(`Failed to fetch currencies: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { currencies: string[] };
     return data.currencies;
   }
 
@@ -333,7 +336,7 @@ export class BlockkoinClient {
       throw new Error(`Crypto buy failed: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as { transactionId: string; cryptoAmount: number; fee: number; blockchainHash?: string };
   }
 
   /**
@@ -374,7 +377,7 @@ export class BlockkoinClient {
       throw new Error(`Crypto sell failed: ${response.statusText}`);
     }
 
-    return await response.json();
+    return await response.json() as { transactionId: string; fiatAmount: number; fee: number; blockchainHash?: string };
   }
 }
 

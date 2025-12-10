@@ -8,8 +8,33 @@ const router = express.Router();
 router.get('/organizations/list', async (_req, res) => {
   try {
     const organizations = await storage.getAllOrganizations();
-    res.json({ organizations });
+    
+    // Fetch organization tag codes (where beneficiaryType === 'charity' or 'organization')
+    const organizationsWithTags = await Promise.all(
+      organizations.map(async (org) => {
+        try {
+          const tags = await storage.getTagsByOrganization(org.id);
+          // Check for both 'charity' and 'organization' beneficiary types (as used in other routes)
+          const orgTag = tags.find((tag: any) => 
+            tag.beneficiaryType === 'charity' || tag.beneficiaryType === 'organization'
+          );
+          return {
+            ...org,
+            tagCode: orgTag?.tagCode || null,
+          };
+        } catch (error) {
+          console.error(`Error fetching tags for organization ${org.id}:`, error);
+          return {
+            ...org,
+            tagCode: null,
+          };
+        }
+      })
+    );
+    
+    res.json({ organizations: organizationsWithTags });
   } catch (error) {
+    console.error('List organizations error:', error);
     res.status(500).json({ error: 'internal server error' });
   }
 });

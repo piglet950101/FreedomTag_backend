@@ -27,22 +27,26 @@ const allowedOrigins = [
 ];
 
 app.use(
-  cors({  
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true);
+  // cors({  
+  //   origin: (origin, callback) => {
+  //     // Allow requests with no origin (like mobile apps or curl requests)
+  //     if (!origin) return callback(null, true);
       
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        // In development, allow all origins for flexibility
-        if (process.env.NODE_ENV === 'development') {
-          callback(null, true);
-        } else {
-          callback(new Error('Not allowed by CORS'));
-        }
-      }
-    },
+  //     if (allowedOrigins.includes(origin)) {
+  //       callback(null, true);
+  //     } else {
+  //       // In development, allow all origins for flexibility
+  //       if (process.env.NODE_ENV === 'development') {
+  //         callback(null, true);
+  //       } else {
+  //         callback(new Error('Not allowed by CORS'));
+  //       }
+  //     }
+  //   },
+  //   credentials: true,
+  // })
+  cors({
+    origin: true,
     credentials: true,
   })
 );
@@ -125,10 +129,16 @@ if (isProduction && !sessionStore) {
   console.error('⚠️  Current env vars: SUPABASE_DB_URL=' + (process.env.SUPABASE_DB_URL ? 'SET' : 'NOT SET'));
 }
 
+// CRITICAL: Use a fixed secret in development to ensure sessions persist
+// Random secret on each restart would invalidate all sessions
+const sessionSecret = process.env.SESSION_SECRET || (process.env.NODE_ENV === 'development' 
+  ? 'dev-fixed-secret-do-not-change-in-development' 
+  : 'dev-only-secret-' + Math.random().toString(36));
+
 const sessionConfig: session.SessionOptions = {
-  secret: process.env.SESSION_SECRET || 'dev-only-secret-' + Math.random().toString(36),
-  resave: true, // Changed to true to ensure cookie is always sent
-  saveUninitialized: false,
+  secret: sessionSecret,
+  resave: false, // Changed to false - only save if session was modified
+  saveUninitialized: false, // Don't save uninitialized sessions
   store: sessionStore,
   name: 'freedomtag.sid', // Custom session name
   rolling: true, // Reset expiration on every request
@@ -155,38 +165,56 @@ if (isCrossOrigin) {
 
 app.use(session(sessionConfig));
 
-// Cookie and session debugging middleware
+// Cookie and session debugging middleware (only if DEBUG_SESSIONS is enabled)
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api')) {
-    // ALWAYS log cookie headers for debugging
+  if (req.path.startsWith('/api') && process.env.DEBUG_SESSIONS === 'true') {
     const cookieHeader = req.headers.cookie;
     const origin = req.headers.origin;
     const referer = req.headers.referer;
+    const authHeader = req.headers.authorization;
     
-    log(`[Cookie Debug] ${req.method} ${req.path}`);
+    // Extract session ID from cookie
+    let cookieSessionId = null;
+    if (cookieHeader) {
+      const match = cookieHeader.match(/freedomtag\.sid=([^;]+)/);
+      cookieSessionId = match ? match[1] : null;
+    }
+    
+    // Extract JWT token
+    let jwtToken = null;
+    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      jwtToken = authHeader.substring(7).trim();
+    } else if (cookieHeader) {
+      const match = cookieHeader.match(/authToken=([^;]+)/);
+      jwtToken = match ? match[1] : null;
+    }
+    
+    log(`[Auth Debug] ${req.method} ${req.path}`);
     log(`  Origin: ${origin || 'none'}`);
     log(`  Referer: ${referer || 'none'}`);
-    log(`  Request Cookie: ${cookieHeader || 'MISSING - Browser not sending cookie!'}`);
-    log(`  SessionID: ${req.sessionID}`);
+    
+    // Log JWT token status (primary auth method now)
+    if (jwtToken) {
+      log(`  JWT Token: Present (${jwtToken.substring(0, 20)}...)`);
+    } else {
+      log(`  JWT Token: Not found`);
+    }
+    
+    // Only log session info if DEBUG_SESSIONS is enabled (legacy session support)
+    log(`  Session Cookie: ${cookieSessionId ? 'Present' : 'Not found'}`);
+    log(`  Request SessionID: ${req.sessionID}`);
     log(`  Has userAuth: ${!!req.session.userAuth}`);
     log(`  Has philanthropistAuth: ${!!req.session.philanthropistAuth}`);
+    log(`  Has donorAuth: ${!!req.session.donorAuth}`);
     
     // Log cookie in response for login endpoints
     if (req.path.includes('/login') || req.path.includes('/signup')) {
       res.on('finish', () => {
         const setCookie = res.getHeader('set-cookie');
-        log(`[Login Response] Set-Cookie header: ${setCookie ? JSON.stringify(setCookie) : 'MISSING!'}`);
-        log(`[Login Response] SessionID: ${req.sessionID}`);
+        if (setCookie) {
+          log(`[Login Response] Set-Cookie header present`);
+        }
       });
-    }
-    
-    // Log cookie for /me endpoints to see if cookie is being received
-    if (req.path.includes('/me')) {
-      log(`[Me Endpoint] Cookie received: ${cookieHeader ? 'YES' : 'NO'}`);
-      if (!cookieHeader) {
-        log(`[Me Endpoint] WARNING: No cookie in request! Browser may be blocking it.`);
-        log(`[Me Endpoint] Check: 1) CORS credentials, 2) Cookie SameSite settings, 3) Browser console for errors`);
-      }
     }
   }
   next();

@@ -6,7 +6,7 @@ const router = express.Router();
 // Create Stripe Checkout Session (redirects to Stripe hosted page)
 router.post('/stripe/create-checkout-session', express.json(), async (req, res) => {
   try {
-    const { tagCode, amount, donorEmail } = req.body;
+    const { tagCode, amount, donorEmail, source } = req.body;
 
     if (!tagCode || !amount) {
       return res.status(400).json({ error: 'Missing tagCode or amount' });
@@ -23,6 +23,17 @@ router.post('/stripe/create-checkout-session', express.json(), async (req, res) 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
       apiVersion: '2024-11-20.acacia' as any,
     });
+
+    // Determine success URL based on source
+    const baseUrl = process.env.BACKEND_URL?.replace('3000', '5173') || 'http://localhost:5173';
+    let successUrl = `${baseUrl}/stripe/success?session_id={CHECKOUT_SESSION_ID}&tag=${tagCode}`;
+    
+    // If source is 'public', redirect to donor/view page after success
+    if (source === 'public') {
+      successUrl = `${baseUrl}/stripe/success?session_id={CHECKOUT_SESSION_ID}&tag=${tagCode}&source=public&redirect=/donor/view/${tagCode}?paid=1`;
+    } else if (source) {
+      successUrl = `${baseUrl}/stripe/success?session_id={CHECKOUT_SESSION_ID}&tag=${tagCode}&source=${source}&redirect=/tag/${tagCode}?paid=1`;
+    }
 
     // Create Checkout Session
     const session = await stripe.checkout.sessions.create({
@@ -41,12 +52,13 @@ router.post('/stripe/create-checkout-session', express.json(), async (req, res) 
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.BACKEND_URL?.replace('3000', '5173') || 'http://localhost:5173'}/stripe/success?session_id={CHECKOUT_SESSION_ID}&tag=${tagCode}`,
-      cancel_url: `${process.env.BACKEND_URL?.replace('3000', '5173') || 'http://localhost:5173'}/stripe/donate/${tagCode}?canceled=true`,
+      success_url: successUrl,
+      cancel_url: `${baseUrl}/bank/pay?tagCode=${tagCode}&amountZAR=${amount}&source=${source || ''}&canceled=true`,
       customer_email: donorEmail || undefined,
       metadata: {
         tagCode,
         amountZAR: amount,
+        source: source || '',
       },
     });
 
