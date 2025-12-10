@@ -79,6 +79,7 @@ export interface IStorage {
   getAllOrganizations(): Promise<Organization[]>;
   getOrganizationsByParent(parentId: string | null): Promise<Organization[]>;
   createOrganization(organization: InsertOrganization): Promise<Organization>;
+  deleteOrganization(id: string): Promise<void>;
   
   // Wallet operations
   getWallet(id: string): Promise<Wallet | undefined>;
@@ -976,6 +977,28 @@ export class DatabaseStorage implements IStorage {
     // @ts-ignore - fallback for mixed-drizzle types
     const [org] = (await db!.insert(organizations as any).values(insertOrganization).returning()) as any;
     return org as Organization;
+  }
+
+  async deleteOrganization(id: string): Promise<void> {
+    if (supabase) {
+      // First delete related tags
+      const { error: tagsError } = await supabase.from('tags').delete().eq('organization_id', id);
+      if (tagsError) console.error('Supabase deleteOrganization (tags) error:', tagsError.message);
+
+      // Then delete the organization
+      const { error: orgError } = await supabase.from('organizations').delete().eq('id', id);
+      if (orgError) throw orgError;
+      return;
+    }
+
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
+    // @ts-ignore - bypass mixed-drizzle typing
+    await db.delete(tags as any).where(eq((tags as any).organizationId, id));
+    // @ts-ignore - bypass mixed-drizzle typing
+    await db.delete(organizations as any).where(eq((organizations as any).id, id));
   }
 
   async getWallet(id: string): Promise<Wallet | undefined> {

@@ -1,5 +1,6 @@
 import express from 'express';
 import { storage } from '../storage';
+import { authenticateJWT } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -364,6 +365,32 @@ router.post('/organizations/:id/give-to-tag', async (req, res) => {
   } catch (error) {
     console.error('Organization give error:', error);
     res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// Delete organization (admin only)
+router.delete('/organizations/:id', authenticateJWT, async (req, res) => {
+  try {
+    if (!req.user || !req.user.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Check if user is admin
+    const user = await storage.getUser(req.user.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const roles = await storage.getUserRoles(user.id);
+    const isAdmin = roles.some(r => r.role === 'ADMIN');
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+
+    await storage.deleteOrganization(req.params.id);
+    res.json({ success: true, message: 'Organization deleted successfully' });
+  } catch (error) {
+    console.error('Delete organization error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
