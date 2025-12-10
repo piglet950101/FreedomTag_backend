@@ -55,19 +55,22 @@ import {
 } from "./shared/schema";
 import { db, supabase } from "./db";
 import { camelizeRow, camelizeRows, snakeifyRow } from "./supabase";
-import { eq, desc, isNull, sql } from "drizzle-orm";
+import { eq, desc, isNull, sql, and } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 export interface IStorage {
   // User operations (unified authentication)
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<User>): Promise<User>;
   updateUserLastLogin(id: string): Promise<User>;
   updateUserPassword(id: string, passwordHash: string): Promise<User>;
+  deleteUser(id: string): Promise<void>;
   getUserRoles(userId: string): Promise<UserRole[]>;
   createUserRole(userRole: InsertUserRole): Promise<UserRole>;
+  deleteUserRole(userId: string, role: string): Promise<void>;
   getUserWithRoles(userId: string): Promise<{ user: User; roles: UserRole[] } | undefined>;
   
   // Organization operations
@@ -732,8 +735,12 @@ export class DatabaseStorage implements IStorage {
       return data ? camelizeRow<User>(data) : undefined;
     }
 
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
     // @ts-ignore - bypass mixed-drizzle typing between shared and server
-    const [user] = (await db!.select().from(users as any).where(eq((users as any).email, email))) as any;
+    const [user] = (await db.select().from(users as any).where(eq((users as any).email, email))) as any;
     return (user as User) || undefined;
   }
 
@@ -745,8 +752,12 @@ export class DatabaseStorage implements IStorage {
       return camelizeRow<User>(data as any);
     }
 
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
     // @ts-ignore - bypass mixed-drizzle typing between shared and server
-    const [user] = (await db!.insert(users as any).values(insertUser).returning()) as any;
+    const [user] = (await db.insert(users as any).values(insertUser).returning()) as any;
     return user as User;
   }
 
@@ -784,8 +795,12 @@ export class DatabaseStorage implements IStorage {
       return camelizeRow<User>(data as any);
     }
 
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
     // @ts-ignore - bypass mixed-drizzle typing between shared and server
-    const [user] = (await db!.update(users as any).set({ passwordHash }).where(eq((users as any).id, id)).returning()) as any;
+    const [user] = (await db.update(users as any).set({ passwordHash }).where(eq((users as any).id, id)).returning()) as any;
     if (!user) throw new Error('User not found');
     return user as User;
   }
@@ -800,8 +815,12 @@ export class DatabaseStorage implements IStorage {
       return camelizeRows<UserRole>(data as any);
     }
 
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
     // @ts-ignore - bypass mixed-drizzle typing between shared and server
-    return (await db!.select().from(userRoles as any).where(eq((userRoles as any).userId, userId))) as any as UserRole[];
+    return (await db.select().from(userRoles as any).where(eq((userRoles as any).userId, userId))) as any as UserRole[];
   }
 
   async createUserRole(insertUserRole: InsertUserRole): Promise<UserRole> {
@@ -811,9 +830,31 @@ export class DatabaseStorage implements IStorage {
       return camelizeRow<UserRole>(data as any);
     }
 
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
     // @ts-ignore - bypass mixed-drizzle typing between shared and server
-    const [role] = (await db!.insert(userRoles as any).values(insertUserRole).returning()) as any;
+    const [role] = (await db.insert(userRoles as any).values(insertUserRole).returning()) as any;
     return role as UserRole;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    if (supabase) {
+      const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+      if (error) {
+        console.error('Supabase getAllUsers error:', error.message || error);
+        return [];
+      }
+      return camelizeRows<User>(data as any);
+    }
+
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
+    // @ts-ignore - bypass mixed-drizzle typing between shared and server
+    return (await db.select().from(users as any).orderBy(desc((users as any).createdAt))) as any as User[];
   }
 
   async getUserWithRoles(userId: string): Promise<{ user: User; roles: UserRole[] } | undefined> {
@@ -822,6 +863,36 @@ export class DatabaseStorage implements IStorage {
     
     const roles = await this.getUserRoles(userId);
     return { user, roles };
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    if (supabase) {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      if (error) throw error;
+      return;
+    }
+
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
+    // @ts-ignore - bypass mixed-drizzle typing
+    await db.delete(users as any).where(eq((users as any).id, id));
+  }
+
+  async deleteUserRole(userId: string, role: string): Promise<void> {
+    if (supabase) {
+      const { error } = await supabase.from('user_roles').delete().eq('user_id', userId).eq('role', role.toUpperCase());
+      if (error) throw error;
+      return;
+    }
+
+    if (!db) {
+      throw new Error('Database connection not available. Please set DATABASE_URL or SUPABASE_URL in your .env file.');
+    }
+
+    // @ts-ignore - bypass mixed-drizzle typing
+    await db.delete(userRoles as any).where(and(eq((userRoles as any).userId, userId), eq((userRoles as any).role, role.toUpperCase())));
   }
 
   async getOrganization(id: string): Promise<Organization | undefined> {

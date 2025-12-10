@@ -177,8 +177,8 @@ const router = express.Router();
 
       // Generate JWT token
       const token = generateToken({ 
-        philanthropistId: philanthropist.id, 
-        email: philanthropist.email,
+          philanthropistId: philanthropist.id,
+          email: philanthropist.email,
         type: 'philanthropist'
       });
 
@@ -191,13 +191,13 @@ const router = express.Router();
         httpOnly: false, // Allow client-side access for Authorization header
       });
 
-      res.json({
+          res.json({
         token, // Send token in response body (primary method)
-        id: philanthropist.id,
-        email: philanthropist.email,
-        displayName: philanthropist.displayName,
-        walletId: philanthropist.walletId,
-        referralCode: philanthropist.referralCode,
+            id: philanthropist.id,
+            email: philanthropist.email,
+            displayName: philanthropist.displayName,
+            walletId: philanthropist.walletId,
+            referralCode: philanthropist.referralCode,
         expiresIn: '7d', // Match JWT_EXPIRES_IN default
       });
     } catch (error) {

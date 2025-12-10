@@ -114,7 +114,14 @@ const router = express.Router();
       });
     } catch (error) {
       console.error('Signup error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error('Signup error details:', { errorMessage, errorStack });
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+        message: errorMessage
+      });
     }
   });
 
@@ -538,5 +545,270 @@ const router = express.Router();
     }
   });
 
+
+  // Admin user creation endpoint (bypasses Blockkoin for simplicity)
+  router.post('/admin/create-user', async (req, res) => {
+    try {
+      const { email, password, fullName, role } = req.body || {};
+      if (!email || !password || !fullName || !role) {
+        return res.status(400).json({ error: 'email, password, fullName, and role are required' });
+      }
+
+      // Check if user exists
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({ error: 'Email already registered' });
+      }
+
+      // Hash password
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Create user WITHOUT Blockkoin (for admin users)
+      const user = await storage.createUser({
+        email,
+        passwordHash,
+        fullName,
+        phone: null,
+        country: null,
+        blockkoinAccountId: null,
+        blockkoinKycStatus: 'none',
+        preferredCurrency: 'ZAR',
+      });
+
+      // Create user role (ensure uppercase)
+      await storage.createUserRole({
+        userId: user.id,
+        role: role.toUpperCase(),
+        entityId: null,
+        isActive: 1,
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+        },
+        role: role.toUpperCase(),
+        message: 'User created successfully',
+      });
+    } catch (error) {
+      console.error('Admin user creation error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error('Admin user creation error details:', { errorMessage, errorStack });
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+        message: errorMessage
+      });
+    }
+  });
+
+  // Get all users (admin only)
+  router.get('/admin/users', authenticateJWT, async (req, res) => {
+    try {
+      if (!req.user || !req.user.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Check if user is admin
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        console.log(`[Admin] User not found: ${req.user.userId}`);
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const roles = await storage.getUserRoles(user.id);
+      console.log(`[Admin] User ${user.email} has roles:`, roles.map(r => r.role));
+      const isAdmin = roles.some(r => r.role === 'ADMIN');
+      if (!isAdmin) {
+        console.log(`[Admin] Access denied for user ${user.email}. Roles: ${roles.map(r => r.role).join(', ') || 'none'}`);
+        return res.status(403).json({ 
+          error: 'Forbidden: Admin access required',
+          message: `User has roles: ${roles.map(r => r.role).join(', ') || 'none'}. ADMIN role required.`
+        });
+      }
+
+      const users = await storage.getAllUsers();
+      console.log(`[Admin] Found ${users.length} users in database`);
+      
+      const usersWithRoles = await Promise.all(
+        users.map(async (u) => {
+          const userRoles = await storage.getUserRoles(u.id);
+          return {
+            ...u,
+            roles: userRoles.map(r => r.role),
+          };
+        })
+      );
+
+      console.log(`[Admin] Returning ${usersWithRoles.length} users with roles`);
+      res.json({ users: usersWithRoles });
+    } catch (error) {
+      console.error('Get users error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: 'Internal server error', message: errorMessage });
+    }
+  });
+
+  // Get single user with roles
+  router.get('/admin/users/:id', authenticateJWT, async (req, res) => {
+    try {
+      if (!req.user || !req.user.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Check if user is admin
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const roles = await storage.getUserRoles(user.id);
+      const isAdmin = roles.some(r => r.role === 'ADMIN');
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const targetUser = await storage.getUserWithRoles(req.params.id);
+      if (!targetUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({
+        user: targetUser.user,
+        roles: targetUser.roles.map(r => r.role),
+      });
+    } catch (error) {
+      console.error('Get user error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Update user
+  router.patch('/admin/users/:id', authenticateJWT, async (req, res) => {
+    try {
+      if (!req.user || !req.user.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Check if user is admin
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const roles = await storage.getUserRoles(user.id);
+      const isAdmin = roles.some(r => r.role === 'ADMIN');
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const { fullName, email, phone, country } = req.body;
+      const updates: any = {};
+      if (fullName !== undefined) updates.fullName = fullName;
+      if (email !== undefined) updates.email = email;
+      if (phone !== undefined) updates.phone = phone;
+      if (country !== undefined) updates.country = country;
+
+      const updatedUser = await storage.updateUser(req.params.id, updates);
+      res.json({ user: updatedUser });
+    } catch (error) {
+      console.error('Update user error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Delete user
+  router.delete('/admin/users/:id', authenticateJWT, async (req, res) => {
+    try {
+      if (!req.user || !req.user.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Check if user is admin
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const roles = await storage.getUserRoles(user.id);
+      const isAdmin = roles.some(r => r.role === 'ADMIN');
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      // Prevent deleting yourself
+      if (req.params.id === req.user.userId) {
+        return res.status(400).json({ error: 'Cannot delete your own account' });
+      }
+
+      await storage.deleteUser(req.params.id);
+      res.json({ success: true, message: 'User deleted successfully' });
+    } catch (error) {
+      console.error('Delete user error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Add role to user
+  router.post('/admin/users/:id/roles', authenticateJWT, async (req, res) => {
+    try {
+      if (!req.user || !req.user.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Check if user is admin
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const roles = await storage.getUserRoles(user.id);
+      const isAdmin = roles.some(r => r.role === 'ADMIN');
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      const { role } = req.body;
+      if (!role) {
+        return res.status(400).json({ error: 'Role is required' });
+      }
+
+      await storage.createUserRole({
+        userId: req.params.id,
+        role: role.toUpperCase(),
+        entityId: null,
+        isActive: 1,
+      });
+
+      res.json({ success: true, message: 'Role added successfully' });
+    } catch (error) {
+      console.error('Add role error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Remove role from user
+  router.delete('/admin/users/:id/roles/:role', authenticateJWT, async (req, res) => {
+    try {
+      if (!req.user || !req.user.userId) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      // Check if user is admin
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const roles = await storage.getUserRoles(user.id);
+      const isAdmin = roles.some(r => r.role === 'ADMIN');
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      }
+
+      // Prevent removing ADMIN role from yourself
+      if (req.params.id === req.user.userId && req.params.role.toUpperCase() === 'ADMIN') {
+        return res.status(400).json({ error: 'Cannot remove ADMIN role from your own account' });
+      }
+
+      await storage.deleteUserRole(req.params.id, req.params.role);
+      res.json({ success: true, message: 'Role removed successfully' });
+    } catch (error) {
+      console.error('Remove role error:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
 export default router;
