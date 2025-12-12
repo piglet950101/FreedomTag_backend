@@ -1,5 +1,7 @@
 import express from 'express';
 import { storage } from '../storage';
+import { generateToken } from '../utils/jwt';
+import { getCookieOptions } from '../utils/cookie';
 
 const router = express.Router();
 
@@ -80,6 +82,26 @@ const router = express.Router();
         passwordHash,
       });
 
+      // Create user account with ORGANIZATION role for authentication
+      const user = await storage.createUser({
+        email: String(email),
+        passwordHash,
+        fullName: String(organizationName),
+        phone: null,
+        country: null,
+        blockkoinAccountId: null,
+        blockkoinKycStatus: 'none',
+        preferredCurrency: 'ZAR',
+      });
+
+      // Assign ORGANIZATION role to the user
+      await storage.createUserRole({
+        userId: user.id,
+        role: 'ORGANIZATION',
+        entityId: organization.id,
+        isActive: 1,
+      });
+
       // Create primary tag for the organization
       const tag = await storage.createTag({
         tagCode,
@@ -156,11 +178,18 @@ const router = express.Router();
         return res.status(400).json({ error: 'Email and password required' });
       }
 
-      // Check if email exists as a user (beneficiary) first
-      const user = await storage.getUserByEmail(String(email));
+      // Check if email exists as a user first
+      let user = await storage.getUserByEmail(String(email));
       if (user) {
-        // Email exists as a beneficiary, not as a charity
-        return res.status(401).json({ error: 'This email is registered as a beneficiary, not as a charity. Please use the beneficiary login page.' });
+        // Check user roles - if they have ORGANIZATION role, they can login as charity
+        const userRoles = await storage.getUserRoles(user.id);
+        const hasOrganizationRole = userRoles.some(r => r.role === 'ORGANIZATION');
+        
+        if (!hasOrganizationRole) {
+          // Email exists as a beneficiary or other role, not as a charity
+          return res.status(401).json({ error: 'This email is registered as a beneficiary, not as a charity. Please use the beneficiary login page.' });
+        }
+        // If user has ORGANIZATION role, continue with organization login flow
       }
 
       // Find organization by email
@@ -194,6 +223,49 @@ const router = express.Router();
         }
       }
 
+      // Generate JWT token - create user account if it doesn't exist
+      let token = null;
+      if (!user) {
+        // Create user account with ORGANIZATION role if it doesn't exist
+        const newUser = await storage.createUser({
+          email: String(email),
+          passwordHash: organization.passwordHash, // Use organization's password hash
+          fullName: organization.name,
+          phone: null,
+          country: null,
+          blockkoinAccountId: null,
+          blockkoinKycStatus: 'none',
+          preferredCurrency: 'ZAR',
+        });
+
+        // Assign ORGANIZATION role to the user
+        await storage.createUserRole({
+          userId: newUser.id,
+          role: 'ORGANIZATION',
+          entityId: organization.id,
+          isActive: 1,
+        });
+
+        user = newUser;
+        console.log('[Charity/Login] Created user account for organization:', organization.id);
+      }
+
+      // Generate JWT token for the user (they should have ORGANIZATION role)
+      token = generateToken({
+        userId: user.id,
+        email: user.email,
+        type: 'user',
+      });
+      
+      // Set token in cookie
+      const cookieOptions = getCookieOptions(req);
+      res.cookie('authToken', token, {
+        ...cookieOptions,
+        httpOnly: false, // Allow client-side access for Authorization header
+      });
+      
+      console.log('[Charity/Login] JWT token generated for user:', user.id);
+
       // Optionally create a lightweight session for org login (separate from user)
       try {
         req.session.regenerate(() => {
@@ -207,6 +279,7 @@ const router = express.Router();
       } catch (_) {}
 
       return res.json({
+        token, // Send token if user account exists
         organizationId: organization.id,
         organizationName: organization.name,
         tagCode: primaryTag?.tagCode || null,

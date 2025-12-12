@@ -242,6 +242,24 @@ const router = express.Router();
         }
       }
 
+      // Get organization info if user has ORGANIZATION role
+      let organization = null;
+      if (roles.some(r => r.role === 'ORGANIZATION')) {
+        const org = await storage.getOrganizationByEmail(user.email);
+        if (org) {
+          // Find the organization's primary tag
+          const tags = await storage.getTagsByOrganization(org.id);
+          const primaryTag = tags.find((t: any) => t.beneficiaryType === 'charity' || t.beneficiaryType === 'organization');
+          
+          organization = {
+            organizationId: org.id,
+            organizationName: org.name,
+            tagCode: primaryTag?.tagCode || null,
+          };
+          console.log('[Auth/Me] Organization found for user:', user.email, 'orgId:', org.id, 'tagCode:', organization.tagCode);
+        }
+      }
+
       res.json({
         user: {
           id: user.id,
@@ -255,6 +273,7 @@ const router = express.Router();
         },
         roles: roles.map(r => r.role),
         beneficiaryTag,
+        organization,
       });
     } catch (error) {
       console.error('Get user error:', error);
