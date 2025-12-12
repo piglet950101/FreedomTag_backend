@@ -156,7 +156,24 @@ const router = express.Router();
         });
       }
 
+      // Generate JWT token for the new user (with ORGANIZATION role)
+      const token = generateToken({
+        userId: user.id,
+        email: user.email,
+        type: 'user',
+      });
+
+      // Set token in cookie
+      const cookieOptions = getCookieOptions(req);
+      res.cookie('authToken', token, {
+        ...cookieOptions,
+        httpOnly: false, // Allow client-side access for Authorization header
+      });
+
+      console.log('[Charity/Signup] JWT token generated for user:', user.id);
+
       res.json({
+        token, // Send token in response body
         organizationId: organization.id,
         tagCode: tag.tagCode,
         referralCode: orgReferralCode,

@@ -102,7 +102,23 @@ const router = express.Router();
           // Get user roles
           const userRoles = await storage.getUserRoles(user.id);
 
+          // Generate JWT token for the new user
+          const token = generateToken({
+            userId: user.id,
+            email: user.email,
+            type: 'user',
+          });
+
+          // Set token in cookie (reuse cookieOptions from above)
+          res.cookie('authToken', token, {
+            ...cookieOptions,
+            httpOnly: false, // Allow client-side access for Authorization header
+          });
+
+          console.log('[Auth/Signup] JWT token generated for user:', user.id);
+
           res.json({
+            token, // Send token in response body
             user: {
               id: user.id,
               email: user.email,

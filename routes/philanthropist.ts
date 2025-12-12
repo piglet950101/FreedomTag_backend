@@ -9,6 +9,38 @@ import { authenticateJWT } from '../middleware/auth';
 
 const router = express.Router();
 
+  // Helper function to get philanthropist ID from JWT token (handles both token types)
+  async function getPhilanthropistIdFromToken(req: express.Request): Promise<string | null> {
+    if (!req.user) {
+      return null;
+    }
+
+    // If token has philanthropistId, use it directly
+    if (req.user.philanthropistId) {
+      return req.user.philanthropistId;
+    }
+
+    // If token has userId (type: 'user'), find philanthropist by email
+    if (req.user.userId && req.user.type === 'user') {
+      const user = await storage.getUser(req.user.userId);
+      if (!user) {
+        return null;
+      }
+
+      const roles = await storage.getUserRoles(user.id);
+      const hasPhilanthropistRole = roles.some(r => r.role === 'PHILANTHROPIST');
+      
+      if (!hasPhilanthropistRole) {
+        return null;
+      }
+
+      const philanthropist = await storage.getPhilanthropistByEmail(user.email);
+      return philanthropist?.id || null;
+    }
+
+    return null;
+  }
+
   // Philanthropist API
   router.post('/philanthropist/signup', async (req, res) => {
     try {
@@ -134,7 +166,23 @@ const router = express.Router();
             isLocalhost: cookieOptions.sameSite === 'lax'
           });
 
+          // Generate JWT token for the new philanthropist
+          const token = generateToken({
+            philanthropistId: philanthropist.id,
+            email: philanthropist.email,
+            type: 'philanthropist',
+          });
+
+          // Set token in cookie
+          res.cookie('authToken', token, {
+            ...cookieOptions,
+            httpOnly: false, // Allow client-side access for Authorization header
+          });
+
+          console.log('[Philanthropist/Signup] JWT token generated for philanthropist:', philanthropist.id);
+
           res.json({
+            token, // Send token in response body
             id: philanthropist.id,
             email: philanthropist.email,
             displayName: philanthropist.displayName,
@@ -224,14 +272,44 @@ const router = express.Router();
     try {
       console.log('[Philanthropist/Me] Request received. User:', req.user);
       
-      if (!req.user || !req.user.philanthropistId) {
-        console.log('[Philanthropist/Me] Missing user or philanthropistId. User:', req.user);
+      if (!req.user) {
+        console.log('[Philanthropist/Me] Missing user. User:', req.user);
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      console.log('[Philanthropist/Me] Fetching philanthropist with ID:', req.user.philanthropistId);
-      // Get philanthropist by ID
-      const philanthropist = await storage.getPhilanthropist(req.user.philanthropistId);
+      let philanthropist = null;
+
+      // If token has philanthropistId, use it directly
+      if (req.user.philanthropistId) {
+        console.log('[Philanthropist/Me] Fetching philanthropist with ID:', req.user.philanthropistId);
+        philanthropist = await storage.getPhilanthropist(req.user.philanthropistId);
+      } 
+      // If token has userId (type: 'user'), check if user has PHILANTHROPIST role and find philanthropist by email
+      else if (req.user.userId && req.user.type === 'user') {
+        console.log('[Philanthropist/Me] Token has userId, checking user roles and finding philanthropist by email');
+        const user = await storage.getUser(req.user.userId);
+        if (!user) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        const roles = await storage.getUserRoles(user.id);
+        const hasPhilanthropistRole = roles.some(r => r.role === 'PHILANTHROPIST');
+        
+        if (!hasPhilanthropistRole) {
+          console.log('[Philanthropist/Me] User does not have PHILANTHROPIST role');
+          return res.status(403).json({ error: 'User does not have philanthropist access' });
+        }
+
+        // Find philanthropist by email
+        philanthropist = await storage.getPhilanthropistByEmail(user.email);
+        if (!philanthropist) {
+          return res.status(404).json({ error: 'Philanthropist record not found for this user' });
+        }
+      } else {
+        console.log('[Philanthropist/Me] Token missing both philanthropistId and userId');
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -257,9 +335,10 @@ const router = express.Router();
     }
   });
 
-  router.post('/philanthropist/fund', async (req, res) => {
+  router.post('/philanthropist/fund', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      const philanthropistId = await getPhilanthropistIdFromToken(req);
+      if (!philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
@@ -268,7 +347,7 @@ const router = express.Router();
         return res.status(400).json({ error: 'Crypto type and amount required' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -301,9 +380,10 @@ const router = express.Router();
     }
   });
 
-  router.post('/philanthropist/fund-fiat', async (req, res) => {
+  router.post('/philanthropist/fund-fiat', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      const philanthropistId = await getPhilanthropistIdFromToken(req);
+      if (!philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
@@ -312,7 +392,7 @@ const router = express.Router();
         return res.status(400).json({ error: 'Payment method and amount required' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -345,9 +425,11 @@ const router = express.Router();
     }
   });
 
-  router.get('/philanthropist/organizations', async (req, res) => {
+  router.get('/philanthropist/organizations', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      // Verify user is authenticated (either has philanthropistId or userId with PHILANTHROPIST role)
+      const philanthropistId = await getPhilanthropistIdFromToken(req);
+      if (!philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
@@ -370,9 +452,10 @@ const router = express.Router();
     }
   });
 
-  router.post('/philanthropist/give', async (req, res) => {
+  router.post('/philanthropist/give', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      const philanthropistId = await getPhilanthropistIdFromToken(req);
+      if (!philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
@@ -381,7 +464,7 @@ const router = express.Router();
         return res.status(400).json({ error: 'Tag code and amount required' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
@@ -431,9 +514,10 @@ const router = express.Router();
     }
   });
 
-  router.post('/philanthropist/spend', async (req, res) => {
+  router.post('/philanthropist/spend', authenticateJWT, async (req, res) => {
     try {
-      if (!req.session.philanthropistAuth) {
+      const philanthropistId = await getPhilanthropistIdFromToken(req);
+      if (!philanthropistId) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
@@ -442,7 +526,7 @@ const router = express.Router();
         return res.status(400).json({ error: 'Outlet ID and amount required' });
       }
 
-      const philanthropist = await storage.getPhilanthropist(req.session.philanthropistAuth.philanthropistId);
+      const philanthropist = await storage.getPhilanthropist(philanthropistId);
       if (!philanthropist) {
         return res.status(404).json({ error: 'Philanthropist not found' });
       }
